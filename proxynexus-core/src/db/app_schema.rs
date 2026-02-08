@@ -1,0 +1,47 @@
+use rusqlite::Connection;
+
+pub fn create_app_schema(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS collections (
+            id INTEGER PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL,
+            display_name TEXT,
+            version TEXT,
+            language TEXT,
+            source_file TEXT,
+            added_date TEXT NOT NULL,
+            last_updated TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS cards (
+            code TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            set_code TEXT NOT NULL,
+            set_name TEXT NOT NULL,
+            release_date TEXT,
+            side TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            first_seen_collection_id INTEGER,
+            FOREIGN KEY (first_seen_collection_id) REFERENCES collections(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS printings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            collection_id INTEGER NOT NULL,
+            card_code TEXT NOT NULL,
+            variant TEXT NOT NULL,
+            image_path TEXT NOT NULL,
+            UNIQUE(collection_id, card_code, variant),
+            FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
+            FOREIGN KEY (card_code) REFERENCES cards(code) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_cards_code ON cards(code);
+        CREATE INDEX IF NOT EXISTS idx_printings_card_code ON printings(card_code);
+        CREATE INDEX IF NOT EXISTS idx_printings_collection ON printings(collection_id);
+        ",
+    )?;
+
+    Ok(())
+}

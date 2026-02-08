@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use zip::write::{FileOptions, ZipWriter};
 
 use crate::collection::{CardMetadata, Manifest, Printing};
-use crate::{csv_parser, db_schema, image_scanner};
+use crate::db::collection_schema;
+use crate::{csv_parser, image_scanner};
 
 #[derive(Debug, Default)]
 pub struct BuildReport {
@@ -92,11 +93,11 @@ impl CollectionBuilder {
 
         let db_path = temp_dir.join("index.db");
         let conn = Connection::open(&db_path)?;
-        db_schema::create_schema(&conn)?; //TODO review schema
+        collection_schema::create_collection_schema(&conn)?;
 
         for card in &cards {
             if let Some(images) = image_map.get(&card.code) {
-                db_schema::insert_card(&conn, card)?;
+                collection_schema::insert_card(&conn, card)?;
                 report.cards_added += 1;
 
                 for img in images {
@@ -112,7 +113,7 @@ impl CollectionBuilder {
                         image_path: relative_path,
                     };
 
-                    db_schema::insert_printing(&conn, &printing)?;
+                    collection_schema::insert_printing(&conn, &printing)?;
                     report.printings_added += 1;
                 }
 

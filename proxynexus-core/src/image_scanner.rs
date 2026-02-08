@@ -1,10 +1,9 @@
-use crate::collection::PrintingVariant;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 pub struct ScannedImage {
     pub code: String,
-    pub variant: PrintingVariant,
+    pub variant: String,
     pub path: PathBuf,
 }
 
@@ -43,20 +42,14 @@ pub fn scan_images(dir: &Path) -> Vec<ScannedImage> {
     images
 }
 
-fn parse_filename(path: &Path) -> Option<(String, PrintingVariant)> {
+fn parse_filename(path: &Path) -> Option<(String, String)> {
     let stem = path.file_stem()?.to_str()?;
+    let mut parts = stem.splitn(2, '_');
 
-    if let Some(code) = stem.strip_suffix("_rear") {
-        return Some((code.to_string(), PrintingVariant::Rear));
-    }
+    let code = parts.next()?;
+    let variant = parts.next().unwrap_or("original");
 
-    if let Some((code, alt_part)) = stem.split_once("_alt") {
-        if let Ok(num) = alt_part.parse::<u32>() {
-            return Some((code.to_string(), PrintingVariant::Alt(num)));
-        }
-    }
-
-    Some((stem.to_string(), PrintingVariant::Default))
+    Some((code.to_string(), variant.to_string()))
 }
 
 #[cfg(test)]
@@ -68,23 +61,20 @@ mod tests {
     fn test_parse_filename_default() {
         let path = PathBuf::from("21001.jpg");
         let result = parse_filename(&path);
-        assert_eq!(
-            result,
-            Some(("21001".to_string(), PrintingVariant::Default))
-        );
+        assert_eq!(result, Some(("21001".to_string(), "original".to_string())));
     }
 
     #[test]
     fn test_parse_filename_alt() {
         let path = PathBuf::from("21001_alt1.jpg");
         let result = parse_filename(&path);
-        assert_eq!(result, Some(("21001".to_string(), PrintingVariant::Alt(1))));
+        assert_eq!(result, Some(("21001".to_string(), "alt1".to_string())));
     }
 
     #[test]
     fn test_parse_filename_rear() {
         let path = PathBuf::from("30212_rear.jpg");
         let result = parse_filename(&path);
-        assert_eq!(result, Some(("30212".to_string(), PrintingVariant::Rear)));
+        assert_eq!(result, Some(("30212".to_string(), "rear".to_string())));
     }
 }

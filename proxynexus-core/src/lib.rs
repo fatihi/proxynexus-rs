@@ -1,7 +1,8 @@
 mod collection;
 pub mod collection_builder;
+pub mod collection_manager;
 mod csv_parser;
-mod db_schema;
+mod db;
 mod image_scanner;
 
 use krilla::Data;

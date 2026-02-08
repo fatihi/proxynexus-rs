@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
+pub fn create_collection_schema(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS cards (
@@ -16,9 +16,9 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE TABLE IF NOT EXISTS printings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             card_code TEXT NOT NULL,
-            variant_type TEXT NOT NULL,
-            variant_number INTEGER,
+            variant TEXT NOT NULL,
             image_path TEXT NOT NULL,
+            UNIQUE(card_code, variant),
             FOREIGN KEY (card_code) REFERENCES cards(code)
         );
 
@@ -56,21 +56,10 @@ pub fn insert_printing(
     conn: &Connection,
     printing: &crate::collection::Printing,
 ) -> rusqlite::Result<()> {
-    let (variant_type, variant_number) = match &printing.variant {
-        crate::collection::PrintingVariant::Default => ("default", None),
-        crate::collection::PrintingVariant::Alt(n) => ("alt", Some(*n as i64)),
-        crate::collection::PrintingVariant::Rear => ("rear", None),
-    };
-
     conn.execute(
-        "INSERT INTO printings (card_code, variant_type, variant_number, image_path)
-         VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![
-            &printing.card_code,
-            variant_type,
-            variant_number,
-            &printing.image_path,
-        ],
+        "INSERT INTO printings (card_code, variant, image_path)
+         VALUES (?1, ?2, ?3)",
+        rusqlite::params![&printing.card_code, &printing.variant, &printing.image_path,],
     )?;
 
     Ok(())

@@ -21,13 +21,6 @@ pub struct CardMetadata {
 #[derive(Debug, Clone)]
 pub struct Printing {
     pub card_code: String,
-    pub variant: PrintingVariant,
+    pub variant: String,
     pub image_path: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum PrintingVariant {
-    Default,
-    Alt(u32),
-    Rear,
 }

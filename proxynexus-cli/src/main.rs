@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use proxynexus_core::collection_builder::CollectionBuilder;
+use proxynexus_core::collection_manager::CollectionManager;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -122,8 +123,18 @@ fn handle_collection_build(
 }
 
 fn handle_collection_add(path: PathBuf) {
-    println!("Adding collection from: {:?}", path);
-    todo!("Implement collection add");
+    match CollectionManager::new() {
+        Ok(manager) => {
+            if let Err(e) = manager.add_collection(&path) {
+                eprintln!("Failed to add collection: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to initialize collection manager: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 fn handle_collection_list() {
