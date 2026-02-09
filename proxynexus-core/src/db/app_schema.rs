@@ -6,7 +6,6 @@ pub fn create_app_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE TABLE IF NOT EXISTS collections (
             id INTEGER PRIMARY KEY,
             name TEXT UNIQUE NOT NULL,
-            display_name TEXT,
             version TEXT,
             language TEXT,
             source_file TEXT,

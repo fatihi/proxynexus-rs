@@ -154,27 +154,27 @@ impl CollectionManager {
         }
 
         let mut printing_stmt =
-            collection_conn.prepare("SELECT card_code, variant, image_path FROM printings")?;
+            collection_conn.prepare("SELECT card_code, variant, file_name FROM printings")?;
 
         let printings = printing_stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?, // card_code
                 row.get::<_, String>(1)?, // variant
-                row.get::<_, String>(2)?, // image_path
+                row.get::<_, String>(2)?, // file_name
             ))
         })?;
 
         let mut printings_added = 0;
 
         for printing_result in printings {
-            let (card_code, variant, image_path) = printing_result?;
+            let (card_code, variant, file_name) = printing_result?;
 
-            let full_image_path = format!("{}/{}", collection_name, image_path);
+            let image_path = format!("{}/{}", collection_name, file_name);
 
             app_conn.execute(
                 "INSERT INTO printings (collection_id, card_code, variant, image_path)
                  VALUES (?1, ?2, ?3, ?4)",
-                params![collection_id, &card_code, &variant, &full_image_path,],
+                params![collection_id, &card_code, &variant, &image_path,],
             )?;
             printings_added += 1;
         }

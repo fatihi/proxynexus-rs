@@ -17,7 +17,7 @@ pub fn create_collection_schema(conn: &Connection) -> rusqlite::Result<()> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             card_code TEXT NOT NULL,
             variant TEXT NOT NULL,
-            image_path TEXT NOT NULL,
+            file_name TEXT NOT NULL,
             UNIQUE(card_code, variant),
             FOREIGN KEY (card_code) REFERENCES cards(code)
         );
@@ -57,9 +57,9 @@ pub fn insert_printing(
     printing: &crate::collection::Printing,
 ) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO printings (card_code, variant, image_path)
+        "INSERT INTO printings (card_code, variant, file_name)
          VALUES (?1, ?2, ?3)",
-        rusqlite::params![&printing.card_code, &printing.variant, &printing.image_path,],
+        rusqlite::params![&printing.card_code, &printing.variant, &printing.file_name,],
     )?;
 
     Ok(())

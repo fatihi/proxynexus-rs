@@ -101,16 +101,18 @@ impl CollectionBuilder {
                 report.cards_added += 1;
 
                 for img in images {
-                    let filename = img.path.file_name().ok_or("Invalid image filename")?;
+                    let filename = img
+                        .path
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .ok_or("Invalid image filename")?;
                     let dest_path = images_temp.join(filename);
                     fs::copy(&img.path, &dest_path)?;
-
-                    let relative_path = format!("images/{}", filename.to_string_lossy());
 
                     let printing = Printing {
                         card_code: card.code.clone(),
                         variant: img.variant.clone(),
-                        image_path: relative_path,
+                        file_name: filename.to_string(),
                     };
 
                     collection_schema::insert_printing(&conn, &printing)?;
