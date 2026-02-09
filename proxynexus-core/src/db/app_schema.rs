@@ -8,7 +8,6 @@ pub fn create_app_schema(conn: &Connection) -> rusqlite::Result<()> {
             name TEXT UNIQUE NOT NULL,
             version TEXT,
             language TEXT,
-            source_file TEXT,
             added_date TEXT NOT NULL,
             last_updated TEXT
         );

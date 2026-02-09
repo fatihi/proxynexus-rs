@@ -166,8 +166,33 @@ fn handle_collection_list() {
 }
 
 fn handle_collection_remove(name: String) {
-    println!("Removing collection: {}", name);
-    todo!("Implement collection remove");
+    println!(
+        "Are you sure you want to remove collection '{}'? (y/N)",
+        name
+    );
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).unwrap();
+
+    if input.trim().to_lowercase() != "y" {
+        return;
+    }
+
+    match CollectionManager::new() {
+        Ok(manager) => match manager.remove_collection(&name) {
+            Ok(_) => {
+                println!("Collection '{}' removed successfully.", name);
+            }
+            Err(e) => {
+                eprintln!("Failed to remove collection: {}", e);
+                std::process::exit(1);
+            }
+        },
+        Err(e) => {
+            eprintln!("Failed to initialize collection manager: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 fn handle_generate_pdf(collections: String, card_ids: String, output: PathBuf) {

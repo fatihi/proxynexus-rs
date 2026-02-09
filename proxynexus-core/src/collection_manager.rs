@@ -72,14 +72,9 @@ impl CollectionManager {
         }
 
         app_conn.execute(
-            "INSERT INTO collections (name, version, language, source_file, added_date)
-             VALUES (?1, ?2, ?3, ?4, datetime('now'))",
-            params![
-                &collection_name,
-                &manifest.version,
-                &manifest.language,
-                pnx_path.to_string_lossy().to_string(),
-            ],
+            "INSERT INTO collections (name, version, language, added_date)
+             VALUES (?1, ?2, ?3, datetime('now'))",
+            params![&collection_name, &manifest.version, &manifest.language,],
         )?;
 
         let collection_id: i64 = app_conn.last_insert_rowid();
@@ -212,5 +207,43 @@ impl CollectionManager {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(collections)
+    }
+
+    pub fn remove_collection(
+        &self,
+        collection_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut app_conn = Connection::open(&self.app_db_path)?;
+
+        let collection_id: i64 = app_conn
+            .query_row(
+                "SELECT id FROM collections WHERE name = ?",
+                [collection_name],
+                |row| row.get(0),
+            )
+            .map_err(|_| format!("Collection '{}' not found", collection_name))?;
+
+        let tx = app_conn.transaction()?;
+
+        tx.execute(
+            "DELETE FROM printings WHERE collection_id = ?",
+            [collection_id],
+        )?;
+
+        tx.execute(
+            "DELETE FROM cards WHERE code NOT IN (SELECT DISTINCT card_code FROM printings)",
+            [],
+        )?;
+
+        tx.execute("DELETE FROM collections WHERE id = ?", [collection_id])?;
+
+        tx.commit()?;
+
+        let collection_dir = self.collections_dir.join(collection_name);
+        if collection_dir.exists() {
+            fs::remove_dir_all(&collection_dir)?;
+        }
+
+        Ok(())
     }
 }
