@@ -1,6 +1,6 @@
+use crate::card_source::{CardSource, NrdbUrl};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::error::Error;
 
 #[derive(Debug, Deserialize)]
 struct NrdbResponse {
@@ -12,7 +12,13 @@ struct NrdbDeck {
     cards: HashMap<String, u32>,
 }
 
-pub fn fetch_decklist(url: &str) -> Result<Vec<String>, Box<dyn Error>> {
+impl CardSource for NrdbUrl {
+    fn get_codes(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        fetch_decklist(&self.0)
+    }
+}
+
+fn fetch_decklist(url: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let (deck_id, api_path) = parse_nrdb_url(url)?;
 
     let api_url = format!(
@@ -47,7 +53,7 @@ pub fn fetch_decklist(url: &str) -> Result<Vec<String>, Box<dyn Error>> {
     Ok(card_codes)
 }
 
-fn parse_nrdb_url(url: &str) -> Result<(String, String), Box<dyn Error>> {
+fn parse_nrdb_url(url: &str) -> Result<(String, String), Box<dyn std::error::Error>> {
     if url.contains("/decklist/") {
         let deck_id = url
             .split("/decklist/")

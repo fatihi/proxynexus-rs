@@ -1,8 +1,9 @@
 use clap::{Parser, Subcommand};
+use proxynexus_core::card_source::{Cardlist, NrdbUrl, SetName};
 use proxynexus_core::collection_builder::CollectionBuilder;
 use proxynexus_core::collection_manager::CollectionManager;
-use proxynexus_core::mpc;
-use proxynexus_core::pdf;
+use proxynexus_core::mpc::generate_mpc_zip;
+use proxynexus_core::pdf::{PageSize, generate_pdf};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -117,14 +118,17 @@ fn main() {
     }
 }
 
-fn handle_collection_action(action: CollectionAction, verbose: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_collection_action(
+    action: CollectionAction,
+    verbose: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         CollectionAction::Build {
             output,
             images,
             metadata,
             language,
-            version
+            version,
         } => {
             CollectionBuilder::new(output, images, metadata, language, version)
                 .verbose(verbose)
@@ -135,15 +139,17 @@ fn handle_collection_action(action: CollectionAction, verbose: bool) -> Result<(
         CollectionAction::Add { path } => {
             let manager = CollectionManager::new()
                 .map_err(|e| format!("Failed to initialize collection manager: {}", e))?;
-            manager.add_collection(&path)
+            manager
+                .add_collection(&path)
                 .map_err(|e| format!("Failed to add collection: {}", e))?;
             println!("Collection added successfully");
             Ok(())
-        },
+        }
         CollectionAction::List => {
             let manager = CollectionManager::new()
                 .map_err(|e| format!("Failed to initialize collection manager: {}", e))?;
-            let collections = manager.get_collections()
+            let collections = manager
+                .get_collections()
                 .map_err(|e| format!("Failed to list collections: {}", e))?;
 
             if collections.is_empty() {
@@ -155,9 +161,12 @@ fn handle_collection_action(action: CollectionAction, verbose: bool) -> Result<(
                 }
             }
             Ok(())
-        },
+        }
         CollectionAction::Remove { name } => {
-            println!("Are you sure you want to remove collection '{}'? (y/N)", name);
+            println!(
+                "Are you sure you want to remove collection '{}'? (y/N)",
+                name
+            );
 
             let mut input = String::new();
             std::io::stdin().read_line(&mut input)?;
@@ -165,12 +174,13 @@ fn handle_collection_action(action: CollectionAction, verbose: bool) -> Result<(
             if input.trim().to_lowercase() == "y" {
                 let manager = CollectionManager::new()
                     .map_err(|e| format!("Failed to initialize collection manager: {}", e))?;
-                manager.remove_collection(&name)
+                manager
+                    .remove_collection(&name)
                     .map_err(|e| format!("Failed to remove collection: {}", e))?;
                 println!("Collection '{}' removed successfully.", name);
             }
             Ok(())
-        },
+        }
     }
 }
 
@@ -209,12 +219,15 @@ fn handle_generate(output_type: GenerateType) -> Result<(), Box<dyn std::error::
             let source = determine_input_source(cardlist, set_name, nrdb_url);
 
             match source {
-                InputSource::Cardlist(list) =>
-                    pdf::generate_pdf_from_cardlist(&list, &output_path, page_size_enum)?,
-                InputSource::SetName(name) =>
-                    pdf::generate_pdf_from_set_name(&name, &output_path, page_size_enum)?,
-                InputSource::NrdbUrl(url) =>
-                    pdf::generate_pdf_from_nrdb_url(&url, &output_path, page_size_enum)?,
+                InputSource::Cardlist(list) => {
+                    generate_pdf(&Cardlist(list), &output_path, page_size_enum)?
+                }
+                InputSource::SetName(name) => {
+                    generate_pdf(&SetName(name), &output_path, page_size_enum)?
+                }
+                InputSource::NrdbUrl(url) => {
+                    generate_pdf(&NrdbUrl(url), &output_path, page_size_enum)?
+                }
             }
 
             println!("PDF created successfully: {:?}", output_path);
@@ -230,12 +243,9 @@ fn handle_generate(output_type: GenerateType) -> Result<(), Box<dyn std::error::
             let source = determine_input_source(cardlist, set_name, nrdb_url);
 
             match source {
-                InputSource::Cardlist(list) =>
-                    mpc::generate_mpc_zip_from_cardlist(&list, &output_path)?,
-                InputSource::SetName(name) =>
-                    mpc::generate_mpc_zip_from_set_name(&name, &output_path)?,
-                InputSource::NrdbUrl(url) =>
-                    mpc::generate_mpc_zip_from_nrdb_url(&url, &output_path)?,
+                InputSource::Cardlist(list) => generate_mpc_zip(&Cardlist(list), &output_path)?,
+                InputSource::SetName(name) => generate_mpc_zip(&SetName(name), &output_path)?,
+                InputSource::NrdbUrl(url) => generate_mpc_zip(&NrdbUrl(url), &output_path)?,
             }
 
             println!("MPC ZIP created successfully: {:?}", output_path);
@@ -244,10 +254,13 @@ fn handle_generate(output_type: GenerateType) -> Result<(), Box<dyn std::error::
     }
 }
 
-fn parse_page_size(size: &str) -> Result<pdf::PageSize, String> {
+fn parse_page_size(size: &str) -> Result<PageSize, String> {
     match size {
-        "letter" => Ok(pdf::PageSize::Letter),
-        "a4" => Ok(pdf::PageSize::A4),
-        _ => Err(format!("Unsupported page size: '{}'. Use 'letter' or 'a4'", size)),
+        "letter" => Ok(PageSize::Letter),
+        "a4" => Ok(PageSize::A4),
+        _ => Err(format!(
+            "Unsupported page size: '{}'. Use 'letter' or 'a4'",
+            size
+        )),
     }
 }

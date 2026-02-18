@@ -1,5 +1,6 @@
 mod border_generator;
 pub mod card_query;
+pub mod card_source;
 pub mod collection_builder;
 pub mod collection_manager;
 mod csv_parser;

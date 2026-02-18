@@ -1,5 +1,6 @@
 use crate::border_generator::generate_bordered_image;
 use crate::card_query::CardQuery;
+use crate::card_source::CardSource;
 use crate::models::Printing;
 use std::collections::HashMap;
 use std::fs::File;
@@ -8,51 +9,11 @@ use std::path::Path;
 use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
 
-pub fn generate_mpc_zip_from_cardlist(
-    cardlist: &str,
+pub fn generate_mpc_zip(
+    card_source: &impl CardSource,
     output_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let query = CardQuery::new()?;
-
-    let card_codes = query.parse_cardlist_text(cardlist)?;
-
-    let available = query.get_available_printings(&card_codes)?;
-    let selected = query.select_default_printings(&available)?;
-    let printings = card_codes
-        .iter()
-        .filter_map(|code| selected.get(code).cloned())
-        .collect();
-
-    generate_mpc_zip(printings, output_path)?;
-
-    Ok(())
-}
-
-pub fn generate_mpc_zip_from_set_name(
-    set_name: &str,
-    output_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let query = CardQuery::new()?;
-
-    let card_codes = query.get_set_cards(set_name)?;
-
-    let available = query.get_available_printings(&card_codes)?;
-    let selected = query.select_default_printings(&available)?;
-    let printings = card_codes
-        .iter()
-        .filter_map(|code| selected.get(code).cloned())
-        .collect();
-
-    generate_mpc_zip(printings, output_path)?;
-
-    Ok(())
-}
-
-pub fn generate_mpc_zip_from_nrdb_url(
-    url: &str,
-    output_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let card_codes = crate::netrunnerdb::fetch_decklist(url)?;
+    let card_codes = card_source.get_codes()?;
 
     let query = CardQuery::new()?;
     let available = query.get_available_printings(&card_codes)?;
@@ -60,17 +21,8 @@ pub fn generate_mpc_zip_from_nrdb_url(
     let printings = card_codes
         .iter()
         .filter_map(|code| selected.get(code).cloned())
-        .collect();
+        .collect::<Vec<Printing>>();
 
-    generate_mpc_zip(printings, output_path)?;
-
-    Ok(())
-}
-
-fn generate_mpc_zip(
-    printings: Vec<Printing>,
-    output_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
     let mut sides: HashMap<String, Vec<Printing>> = HashMap::new();
 
     for printing in printings {

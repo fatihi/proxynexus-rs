@@ -1,3 +1,4 @@
+use crate::card_source::{CardSource, Cardlist, SetName};
 use crate::models::Printing;
 use dirs;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -15,6 +16,20 @@ pub fn normalize_title(title: &str) -> String {
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
         .collect()
+}
+
+impl CardSource for Cardlist {
+    fn get_codes(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let query = CardQuery::new()?;
+        query.parse_cardlist_text(&self.0)
+    }
+}
+
+impl CardSource for SetName {
+    fn get_codes(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let query = CardQuery::new()?;
+        query.get_set_cards(&self.0)
+    }
 }
 
 impl CardQuery {
@@ -65,10 +80,7 @@ impl CardQuery {
         Ok(codes)
     }
 
-    pub fn parse_cardlist_text(
-        &self,
-        text: &str,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    fn parse_cardlist_text(&self, text: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let mut entries: Vec<(&str, u32)> = Vec::new();
 
         for line in text.lines() {
@@ -119,7 +131,7 @@ impl CardQuery {
         Ok(results)
     }
 
-    pub fn get_set_cards(&self, set_name: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    fn get_set_cards(&self, set_name: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let conn = Connection::open(&self.app_db_path)?;
 
         let mut stmt = conn.prepare(

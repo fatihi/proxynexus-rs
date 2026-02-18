@@ -1,11 +1,11 @@
 use crate::card_query::CardQuery;
-use crate::netrunnerdb::fetch_decklist;
+use crate::card_source::CardSource;
 use krilla::Data;
 use krilla::Document;
 use krilla::geom::{Size, Transform};
 use krilla::image::Image;
 use krilla::page::PageSettings;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const POINTS_PER_INCH: f32 = 72.0;
 
@@ -38,59 +38,6 @@ impl PageSize {
     }
 }
 
-pub fn generate_pdf_from_cardlist(
-    cardlist: &str,
-    output_path: &Path,
-    page_size: PageSize,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let query = CardQuery::new()?;
-
-    let card_codes = query.parse_cardlist_text(cardlist)?;
-
-    let available = query.get_available_printings(&card_codes)?;
-    let selected = query.select_default_printings(&available)?;
-    let image_paths = query.make_full_image_paths(&card_codes, &selected)?;
-
-    generate_pdf(image_paths, output_path, page_size)?;
-
-    Ok(())
-}
-
-pub fn generate_pdf_from_set_name(
-    set_name: &str,
-    output_path: &Path,
-    page_size: PageSize,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let query = CardQuery::new()?;
-
-    let card_codes = query.get_set_cards(set_name)?;
-
-    let available = query.get_available_printings(&card_codes)?;
-    let selected = query.select_default_printings(&available)?;
-    let image_paths = query.make_full_image_paths(&card_codes, &selected)?;
-
-    generate_pdf(image_paths, output_path, page_size)?;
-
-    Ok(())
-}
-
-pub fn generate_pdf_from_nrdb_url(
-    url: &str,
-    output_path: &Path,
-    page_size: PageSize,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let card_codes = fetch_decklist(url)?;
-
-    let query = CardQuery::new()?;
-    let available = query.get_available_printings(&card_codes)?;
-    let selected = query.select_default_printings(&available)?;
-    let image_paths = query.make_full_image_paths(&card_codes, &selected)?;
-
-    generate_pdf(image_paths, output_path, page_size)?;
-
-    Ok(())
-}
-
 fn calculate_card_position(card_index: usize, page_size: &PageSize) -> (f32, f32) {
     let (left_margin, top_margin) = page_size.margins();
 
@@ -103,11 +50,18 @@ fn calculate_card_position(card_index: usize, page_size: &PageSize) -> (f32, f32
     (x, y)
 }
 
-fn generate_pdf(
-    image_paths: Vec<PathBuf>,
+pub fn generate_pdf(
+    card_source: &impl CardSource,
     output_path: &Path,
     page_size: PageSize,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let card_codes = card_source.get_codes()?;
+
+    let query = CardQuery::new()?;
+    let available = query.get_available_printings(&card_codes)?;
+    let selected = query.select_default_printings(&available)?;
+    let image_paths = query.make_full_image_paths(&card_codes, &selected)?;
+
     let mut document = Document::new();
     let (page_width, page_height) = page_size.dimensions();
 
