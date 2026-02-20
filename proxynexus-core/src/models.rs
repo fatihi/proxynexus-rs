@@ -28,6 +28,7 @@ pub struct CollectionPrinting {
 #[derive(Debug, Clone)]
 pub struct Printing {
     pub card_code: String,
+    pub card_title: String,
     pub variant: String,
     pub file_path: String,
     pub collection: String,

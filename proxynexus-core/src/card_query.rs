@@ -2,7 +2,7 @@ use crate::card_source::{CardSource, Cardlist, SetName};
 use crate::models::{CardRequest, Printing};
 use dirs;
 use rusqlite::{Connection, OptionalExtension, params};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 pub struct CardQuery {
@@ -75,9 +75,9 @@ impl CardQuery {
             .zip(entries)
             .flat_map(|(code, (_, qty, variant, collection))| {
                 std::iter::repeat(CardRequest {
-                    code: code.clone(),
-                    variant: variant.clone(),
-                    collection: collection.clone(),
+                    code,
+                    variant,
+                    collection,
                 })
                 .take(qty as usize)
             })
@@ -170,8 +170,8 @@ impl CardQuery {
             }
         }
 
-        if !not_found.is_empty() {
-            return Err(format!("Could not resolve card titles: {}", not_found.join(", ")).into());
+        for name in &not_found {
+            eprintln!("Warning: Card not found: {}", name);
         }
 
         Ok(codes)
@@ -202,7 +202,7 @@ impl CardQuery {
             .into_iter()
             .flat_map(|(code, qty)| {
                 std::iter::repeat(CardRequest {
-                    code: code.clone(),
+                    code,
                     variant: None,
                     collection: None,
                 })
@@ -217,12 +217,8 @@ impl CardQuery {
     ) -> Result<HashMap<String, Vec<Printing>>, Box<dyn std::error::Error>> {
         let conn = Connection::open(&self.app_db_path)?;
 
-        let unique_codes: Vec<String> = card_requests
-            .iter()
-            .map(|item| item.code.clone())
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
+        let unique_codes: HashSet<String> =
+            card_requests.iter().map(|req| req.code.clone()).collect();
 
         // build the "?1, ?2, ?3, ..." string for the in clause
         let placeholders: String = unique_codes
@@ -233,7 +229,7 @@ impl CardQuery {
             .join(", ");
 
         let query = format!(
-            "SELECT p.card_code, p.variant, p.file_path, col.name, c.side
+            "SELECT c.title, p.card_code, p.variant, p.file_path, col.name, c.side
              FROM printings p
              JOIN cards c ON p.card_code = c.code
              JOIN collections col ON p.collection_id = col.id
@@ -248,36 +244,23 @@ impl CardQuery {
         let mut rows = stmt.query(rusqlite::params_from_iter(unique_codes.iter()))?;
 
         let mut map: HashMap<String, Vec<Printing>> = HashMap::new();
-
         while let Some(row) = rows.next()? {
-            let card_code: String = row.get(0)?;
-            let variant: String = row.get(1)?;
-            let file_path: String = row.get(2)?;
-            let collection: String = row.get(3)?;
-            let side: String = row.get(4)?;
-
-            map.entry(card_code.clone()).or_default().push(Printing {
-                card_code,
-                variant,
-                file_path,
-                collection,
-                side,
-            });
+            let printing = Printing {
+                card_title: row.get(0)?,
+                card_code: row.get(1)?,
+                variant: row.get(2)?,
+                file_path: row.get(3)?,
+                collection: row.get(4)?,
+                side: row.get(5)?,
+            };
+            map.entry(printing.card_code.clone())
+                .or_default()
+                .push(printing);
         }
 
-        let missing_codes: Vec<String> = unique_codes
-            .iter()
-            .filter(|code| !map.contains_key(*code))
-            .cloned()
-            .collect();
-
-        if !missing_codes.is_empty() {
-            eprintln!(
-                "Warning: {} card(s) not found in collections:",
-                missing_codes.len()
-            );
-            for code in &missing_codes {
-                eprintln!("  - {}", code);
+        for code in &unique_codes {
+            if !map.contains_key(code) {
+                eprintln!("Warning: Card not found: {}", code);
             }
         }
 
