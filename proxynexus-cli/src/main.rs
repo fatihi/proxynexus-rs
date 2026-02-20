@@ -4,6 +4,7 @@ use proxynexus_core::collection_builder::CollectionBuilder;
 use proxynexus_core::collection_manager::CollectionManager;
 use proxynexus_core::mpc::generate_mpc_zip;
 use proxynexus_core::pdf::{PageSize, generate_pdf};
+use proxynexus_core::query::{generate_query_output, list_available_sets};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -27,6 +28,24 @@ enum Commands {
     Collection {
         #[command(subcommand)]
         action: CollectionAction,
+    },
+    #[command(group(
+    clap::ArgGroup::new("input")
+        .required(true)
+        .args(["cardlist", "set_name", "nrdb_url", "list_sets"]),
+    ))]
+    Query {
+        #[arg(short, long)]
+        cardlist: Option<String>,
+
+        #[arg(short, long)]
+        set_name: Option<String>,
+
+        #[arg(long)]
+        nrdb_url: Option<String>,
+
+        #[arg(long)]
+        list_sets: bool,
     },
 }
 
@@ -110,6 +129,12 @@ fn main() {
     let result = match cli.command {
         Commands::Collection { action } => handle_collection_action(action, cli.verbose),
         Commands::Generate { output_type } => handle_generate(output_type),
+        Commands::Query {
+            cardlist,
+            set_name,
+            nrdb_url,
+            list_sets,
+        } => handle_query(cardlist, set_name, nrdb_url, list_sets),
     };
 
     if let Err(e) = result {
@@ -252,6 +277,32 @@ fn handle_generate(output_type: GenerateType) -> Result<(), Box<dyn std::error::
             Ok(())
         }
     }
+}
+
+fn handle_query(
+    cardlist: Option<String>,
+    set_name: Option<String>,
+    nrdb_url: Option<String>,
+    list_sets: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if list_sets {
+        println!("\nAvailable Sets:\n");
+        println!("{}", list_available_sets()?);
+        return Ok(());
+    }
+
+    let source = determine_input_source(cardlist, set_name, nrdb_url);
+
+    let output = match source {
+        InputSource::Cardlist(list) => generate_query_output(&Cardlist(list)),
+        InputSource::SetName(name) => generate_query_output(&SetName(name)),
+        InputSource::NrdbUrl(url) => generate_query_output(&NrdbUrl(url)),
+    };
+
+    println!("\nQuery Results:\n");
+    println!("{}", output?);
+
+    Ok(())
 }
 
 fn parse_page_size(size: &str) -> Result<PageSize, String> {

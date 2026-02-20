@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-pub struct CardQuery {
+pub struct CardDB {
     app_db_path: PathBuf,
     collections_dir: PathBuf,
 }
@@ -20,19 +20,19 @@ pub fn normalize_title(title: &str) -> String {
 
 impl CardSource for Cardlist {
     fn to_card_requests(&self) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
-        let query = CardQuery::new()?;
-        query.parse_cardlist_into_card_requests(&self.0)
+        let db = CardDB::new()?;
+        db.parse_cardlist_into_card_requests(&self.0)
     }
 }
 
 impl CardSource for SetName {
     fn to_card_requests(&self) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
-        let query = CardQuery::new()?;
-        query.get_card_requests_from_set_name(&self.0)
+        let db = CardDB::new()?;
+        db.get_card_requests_from_set_name(&self.0)
     }
 }
 
-impl CardQuery {
+impl CardDB {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let home = dirs::home_dir().ok_or("Could not find home directory")?;
         let proxynexus_dir = home.join(".proxynexus");
@@ -56,7 +56,7 @@ impl CardQuery {
         let mut entries: Vec<(&str, u32, Option<String>, Option<String>)> = Vec::new();
 
         for line in text.lines() {
-            let line = line.trim();
+            let line = line.split('#').next().unwrap_or("").trim();
             if line.is_empty() {
                 continue;
             }
@@ -177,6 +177,18 @@ impl CardQuery {
         Ok(codes)
     }
 
+    pub fn get_available_sets(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let conn = Connection::open(&self.app_db_path)?;
+
+        let mut stmt = conn.prepare("SELECT DISTINCT set_name FROM cards ORDER BY set_name")?;
+
+        let results = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+
+        Ok(results)
+    }
+
     fn get_card_requests_from_set_name(
         &self,
         set_name: &str,
@@ -281,7 +293,7 @@ impl CardQuery {
             .collect()
     }
 
-    fn select_printing(
+    pub fn select_printing(
         &self,
         request: &CardRequest,
         printings: &[Printing],

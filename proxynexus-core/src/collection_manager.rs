@@ -1,4 +1,4 @@
-use crate::card_query::normalize_title;
+use crate::card_db::normalize_title;
 use crate::db::app_schema;
 use crate::models::{CardMetadata, Manifest};
 use dirs;

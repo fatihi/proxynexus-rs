@@ -1,5 +1,5 @@
 mod border_generator;
-pub mod card_query;
+pub mod card_db;
 pub mod card_source;
 pub mod collection_builder;
 pub mod collection_manager;
@@ -10,3 +10,4 @@ mod models;
 pub mod mpc;
 pub mod netrunnerdb;
 pub mod pdf;
+pub mod query;

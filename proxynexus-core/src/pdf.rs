@@ -1,4 +1,4 @@
-use crate::card_query::CardQuery;
+use crate::card_db::CardDB;
 use crate::card_source::CardSource;
 use krilla::Data;
 use krilla::Document;
@@ -57,12 +57,12 @@ pub fn generate_pdf(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let card_requests = card_source.to_card_requests()?;
 
-    let query = CardQuery::new()?;
-    let available = query.get_available_printings(&card_requests)?;
-    let printings = query.resolve_printings(&card_requests, &available)?;
+    let db = CardDB::new()?;
+    let available = db.get_available_printings(&card_requests)?;
+    let printings = db.resolve_printings(&card_requests, &available)?;
     let image_paths = printings
         .iter()
-        .map(|printing| query.resolve_printing_to_full_path(printing))
+        .map(|printing| db.resolve_printing_to_full_path(printing))
         .collect::<Result<Vec<PathBuf>, _>>()?;
 
     let mut document = Document::new();
