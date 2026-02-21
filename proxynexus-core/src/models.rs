@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Manifest {
@@ -30,7 +31,7 @@ pub struct Printing {
     pub card_code: String,
     pub card_title: String,
     pub variant: String,
-    pub file_path: String,
+    pub file_path: PathBuf,
     pub collection: String,
     pub side: String,
 }

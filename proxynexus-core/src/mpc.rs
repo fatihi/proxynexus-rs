@@ -2,6 +2,7 @@ use crate::border_generator::generate_bordered_image;
 use crate::card_db::CardDB;
 use crate::card_source::CardSource;
 use crate::models::Printing;
+use opencv::imgcodecs;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
@@ -52,8 +53,6 @@ fn process_side(
     folder_name: &str,
     printings: Vec<Printing>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use opencv::imgcodecs;
-
     let mut copy_counters: HashMap<(String, String, String), u32> = HashMap::new();
 
     for printing in printings {
@@ -67,20 +66,13 @@ fn process_side(
             .and_modify(|n| *n += 1)
             .or_insert(1);
 
-        let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
-        let input_path = home
-            .join(".proxynexus")
-            .join("collections")
-            .join(&printing.file_path);
-
-        if !input_path.exists() {
-            return Err(format!("Image not found: {:?}", input_path).into());
-        }
         let img = imgcodecs::imread(
-            input_path.to_str().ok_or("Invalid input path encoding")?,
+            printing
+                .file_path
+                .to_str()
+                .ok_or("Invalid input path encoding")?,
             imgcodecs::IMREAD_COLOR,
         )?;
-
         let bordered_bytes = generate_bordered_image(&img, *copy_num)?;
 
         let filename = format!(
@@ -90,6 +82,7 @@ fn process_side(
 
         let options =
             SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+
         zip.start_file(&filename, options)?;
         zip.write_all(&bordered_bytes)?;
     }

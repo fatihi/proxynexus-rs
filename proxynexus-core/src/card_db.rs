@@ -257,11 +257,12 @@ impl CardDB {
 
         let mut map: HashMap<String, Vec<Printing>> = HashMap::new();
         while let Some(row) = rows.next()? {
+            let relative_path: String = row.get(3)?;
             let printing = Printing {
                 card_title: row.get(0)?,
                 card_code: row.get(1)?,
                 variant: row.get(2)?,
-                file_path: row.get(3)?,
+                file_path: self.collections_dir.join(relative_path),
                 collection: row.get(4)?,
                 side: row.get(5)?,
             };
@@ -383,22 +384,5 @@ impl CardDB {
             .optional()?;
 
         Ok(result)
-    }
-
-    pub fn resolve_printing_to_full_path(
-        &self,
-        printing: &Printing,
-    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-        let path = self.collections_dir.join(&printing.file_path);
-        if !path.exists() {
-            return Err(format!(
-                "Image file not found: {} (printing: {} {})",
-                path.display(),
-                printing.card_code,
-                printing.variant
-            )
-            .into());
-        }
-        Ok(path)
     }
 }

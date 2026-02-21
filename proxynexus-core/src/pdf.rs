@@ -60,10 +60,7 @@ pub fn generate_pdf(
     let db = CardDB::new()?;
     let available = db.get_available_printings(&card_requests)?;
     let printings = db.resolve_printings(&card_requests, &available)?;
-    let image_paths = printings
-        .iter()
-        .map(|printing| db.resolve_printing_to_full_path(printing))
-        .collect::<Result<Vec<PathBuf>, _>>()?;
+    let image_paths: Vec<PathBuf> = printings.iter().map(|p| p.file_path.clone()).collect();
 
     let mut document = Document::new();
     let (page_width, page_height) = page_size.dimensions();
