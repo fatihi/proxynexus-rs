@@ -61,8 +61,8 @@ fn scan_images(dir: &Path) -> Vec<PathBuf> {
         .max_depth(1)
         .into_iter()
         .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
         .map(|e| e.path().to_path_buf())
-        .filter(|p| p.is_file())
         .filter(|p| {
             p.extension()
                 .map(|ext| {

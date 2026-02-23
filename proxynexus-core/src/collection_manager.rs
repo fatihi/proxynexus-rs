@@ -1,6 +1,5 @@
-use crate::card_db::normalize_title;
 use crate::db_schema;
-use crate::models::{CardMetadata, Manifest};
+use crate::models::Manifest;
 use dirs;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::fs;
@@ -80,92 +79,23 @@ impl CollectionManager {
 
         let collection_id: i64 = app_conn.last_insert_rowid();
 
-        let collection_db_path = temp_path.join("index.db");
-        let collection_conn = Connection::open(&collection_db_path)?;
+        let collection_dir = self.collections_dir.join(&collection_name);
+        fs::create_dir_all(&collection_dir)?;
 
-        let mut card_stmt = collection_conn.prepare(
-            "SELECT code, title, set_code, set_name, release_date, side, quantity FROM cards",
-        )?;
-
-        let cards = card_stmt.query_map([], |row| {
-            Ok(CardMetadata {
-                code: row.get(0)?,
-                title: row.get(1)?,
-                set_code: row.get(2)?,
-                set_name: row.get(3)?,
-                release_date: row.get(4)?,
-                side: row.get(5)?,
-                quantity: row.get(6)?,
-            })
-        })?;
-
-        let mut cards_added = 0;
-        let mut existing_cards = 0;
-
-        for card_result in cards {
-            let card = card_result?;
-
-            match app_conn.execute(
-                "INSERT INTO cards (code, title, title_normalized, set_code, set_name, release_date, side, quantity, first_seen_collection_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![
-                    &card.code,
-                    &card.title,
-                    &normalize_title(&card.title),
-                    &card.set_code,
-                    &card.set_name,
-                    &card.release_date,
-                    &card.side,
-                    &card.quantity,
-                    collection_id,
-                ],
-            ) {
-                Ok(_) => cards_added += 1,
-                Err(rusqlite::Error::SqliteFailure(err, _))
-                if err.code == rusqlite::ErrorCode::ConstraintViolation =>
-                    {
-                        // Card already exists - validate it matches
-                        let existing: (String, String, u32) = app_conn.query_row(
-                            "SELECT title, set_code, quantity FROM cards WHERE code = ?1",
-                            params![&card.code],
-                            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                        )?;
-
-                        if existing.0 != card.title || existing.2 != card.quantity {
-                            return Err(format!(
-                                "Card mismatch for {}: existing='{}' (qty {}), new='{}' (qty {})",
-                                card.code, existing.0, existing.2, card.title, card.quantity
-                            ).into());
-                        }
-
-                        existing_cards += 1;
-                    }
-                Err(e) => return Err(e.into()),
-            }
-        }
-
-        println!("Added {} new cards", cards_added);
-
-        if existing_cards > 0 {
-            println!("{} cards already existed", existing_cards);
-        }
-
-        let mut printing_stmt =
-            collection_conn.prepare("SELECT card_code, variant, file_name FROM printings")?;
-
-        let printings = printing_stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?, // card_code
-                row.get::<_, String>(1)?, // variant
-                row.get::<_, String>(2)?, // file_name
-            ))
-        })?;
+        let src_images = temp_path.join("images");
 
         let mut printings_added = 0;
 
-        for printing_result in printings {
-            let (card_code, variant, file_name) = printing_result?;
+        for entry in fs::read_dir(&src_images)? {
+            let entry = entry?;
+            let path = entry.path();
 
+            let (card_code, variant) = match self.parse_filename(&path) {
+                Some(parsed) => parsed,
+                None => continue,
+            };
+
+            let file_name = path.file_name().unwrap().to_string_lossy();
             let file_path = format!("{}/{}", collection_name, file_name);
 
             app_conn.execute(
@@ -173,27 +103,33 @@ impl CollectionManager {
                  VALUES (?1, ?2, ?3, ?4)",
                 params![collection_id, &card_code, &variant, &file_path,],
             )?;
+
+            let dst_path = collection_dir.join(path.file_name().unwrap());
+            fs::copy(entry.path(), dst_path)?;
+
             printings_added += 1;
         }
 
         println!("Added {} printings", printings_added);
-
-        let collection_dir = self.collections_dir.join(&collection_name);
-        fs::create_dir_all(&collection_dir)?;
-
-        let src_images = temp_path.join("images");
-
-        for entry in fs::read_dir(src_images)? {
-            let entry = entry?;
-            if entry.file_type()?.is_file() {
-                let dst_path = collection_dir.join(entry.file_name());
-                fs::copy(entry.path(), dst_path)?;
-            }
-        }
-
         println!("Collection '{}' added successfully!", collection_name);
 
         Ok(())
+    }
+
+    fn parse_filename(&self, path: &Path) -> Option<(String, String)> {
+        let stem = path.file_stem()?.to_str()?;
+
+        let (code, variant) = if let Some((c, v)) = stem.split_once('_') {
+            (c, v)
+        } else {
+            (stem, "original")
+        };
+
+        if !code.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+
+        Some((code.to_string(), variant.to_string()))
     }
 
     pub fn get_collections(
@@ -230,11 +166,6 @@ impl CollectionManager {
         tx.execute(
             "DELETE FROM printings WHERE collection_id = ?",
             [collection_id],
-        )?;
-
-        tx.execute(
-            "DELETE FROM cards WHERE code NOT IN (SELECT DISTINCT card_code FROM printings)",
-            [],
         )?;
 
         tx.execute("DELETE FROM collections WHERE id = ?", [collection_id])?;
