@@ -478,4 +478,50 @@ mod tests {
             "original"
         );
     }
+
+    #[test]
+    fn test_parse_quantity() {
+        let store = CardStore {
+            app_db_path: PathBuf::new(),
+            collections_dir: PathBuf::from("/tmp"),
+        };
+
+        assert_eq!(store.parse_quantity("3x Sure Gamble"), (3, "Sure Gamble"));
+        assert_eq!(store.parse_quantity("3 Sure Gamble"), (3, "Sure Gamble"));
+        assert_eq!(store.parse_quantity("Sure Gamble"), (1, "Sure Gamble"));
+        assert_eq!(store.parse_quantity("10x Hedge Fund"), (10, "Hedge Fund"));
+    }
+
+    #[test]
+    fn test_parse_overrides() {
+        let store = CardStore {
+            app_db_path: PathBuf::new(),
+            collections_dir: PathBuf::from("/tmp"),
+        };
+
+        // Full override
+        let (name, v, c, p) = store
+            .parse_overrides("Sure Gamble [alt:ffg-en:core]")
+            .unwrap();
+        assert_eq!(name, "Sure Gamble");
+        assert_eq!(v, Some("alt".to_string()));
+        assert_eq!(c, Some("ffg-en".to_string()));
+        assert_eq!(p, Some("core".to_string()));
+
+        // Partial, variant only
+        let (_, v, c, p) = store.parse_overrides("Sure Gamble [alt]").unwrap();
+        assert_eq!(v, Some("alt".to_string()));
+        assert_eq!(c, None);
+        assert_eq!(p, None);
+
+        // Partial, skipped slots
+        let (_, v, c, p) = store.parse_overrides("Sure Gamble [:std:]").unwrap();
+        assert_eq!(v, None);
+        assert_eq!(c, Some("std".to_string()));
+        assert_eq!(p, None);
+
+        // Case normalization in overrides
+        let (_, v, _, _) = store.parse_overrides("Card [ALT]").unwrap();
+        assert_eq!(v, Some("alt".to_string()));
+    }
 }
