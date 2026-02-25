@@ -117,16 +117,16 @@ impl CollectionManager {
         let stem = path.file_stem()?.to_str()?;
 
         let (code, variant) = if let Some((c, v)) = stem.split_once('_') {
-            (c, v)
+            (c, v.to_lowercase())
         } else {
-            (stem, "original")
+            (stem, "original".to_string())
         };
 
         if !code.chars().all(|c| c.is_ascii_digit()) {
             return None;
         }
 
-        Some((code.to_string(), variant.to_string()))
+        Some((code.to_string(), variant))
     }
 
     pub fn get_collections(
@@ -187,5 +187,37 @@ impl CollectionManager {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_parse_filename_variants() {
+        let mgr = CollectionManager {
+            app_db_path: PathBuf::new(),
+            collections_dir: PathBuf::new(),
+        };
+
+        assert_eq!(
+            mgr.parse_filename(Path::new("01001.jpg")),
+            Some(("01001".to_string(), "original".to_string()))
+        );
+
+        assert_eq!(
+            mgr.parse_filename(Path::new("01001_alt1.jpg")),
+            Some(("01001".to_string(), "alt1".to_string()))
+        );
+
+        assert_eq!(
+            mgr.parse_filename(Path::new("01001_Rear.png")),
+            Some(("01001".to_string(), "rear".to_string()))
+        );
+
+        assert_eq!(mgr.parse_filename(Path::new("notacode.jpg")), None);
+        assert_eq!(mgr.parse_filename(Path::new("abc_alt.jpg")), None);
     }
 }

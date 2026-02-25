@@ -408,3 +408,74 @@ impl CardStore {
             .ok_or_else(|| format!("No matching printing found for '{}'", request.title).into())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Printing;
+
+    fn mock_printing(variant: &str, coll: &str, pack: &str) -> Printing {
+        Printing {
+            card_title: "Sure Gamble".into(),
+            card_code: "01050".into(),
+            variant: variant.into(),
+            file_path: PathBuf::from("01050.jpg"),
+            collection: coll.into(),
+            side: "runner".into(),
+            pack_code: pack.into(),
+        }
+    }
+
+    #[test]
+    fn test_select_printing_prioritization() {
+        let store = CardStore {
+            app_db_path: PathBuf::new(),
+            collections_dir: PathBuf::from("/tmp"),
+        };
+
+        let p1 = mock_printing("original", "ffg-en", "core");
+        let p2 = mock_printing("alt1", "standard", "core");
+        let p3 = mock_printing("original", "alt-arts", "core");
+        let available = vec![p1.clone(), p2.clone(), p3.clone()];
+
+        // Exact variant match
+        let req = CardRequest {
+            title: "Sure Gamble".into(),
+            code: "01050".into(),
+            variant: Some("alt1".into()),
+            collection: None,
+            pack_code: None,
+        };
+        assert_eq!(
+            store.select_printing(&req, &available).unwrap().variant,
+            "alt1"
+        );
+
+        // Exact collection match
+        let req = CardRequest {
+            title: "Sure Gamble".into(),
+            code: "01050".into(),
+            variant: None,
+            collection: Some("alt-arts".into()),
+            pack_code: None,
+        };
+        assert_eq!(
+            store.select_printing(&req, &available).unwrap().collection,
+            "alt-arts"
+        );
+
+        // When requested variant doesn't exist
+        let req = CardRequest {
+            title: "Sure Gamble".into(),
+            code: "01050".into(),
+            variant: Some("nonexistent".into()),
+            collection: None,
+            pack_code: None,
+        };
+        // Return the first item found
+        assert_eq!(
+            store.select_printing(&req, &available).unwrap().variant,
+            "original"
+        );
+    }
+}
