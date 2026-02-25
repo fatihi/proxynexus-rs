@@ -19,7 +19,7 @@ jobs:
     - name: Install System Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libturbojpeg0-dev
+        sudo apt-get install -y libturbojpeg0-dev nasm
 
     - name: Rust Cache
       uses: Swatinem/rust-cache@v2
