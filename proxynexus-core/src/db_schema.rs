@@ -1,7 +1,6 @@
-use rusqlite::Connection;
+use turso::Connection;
 
-pub fn create_app_schema(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute("PRAGMA foreign_keys = ON;", [])?;
+pub async fn create_app_schema(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS meta (
@@ -50,7 +49,8 @@ pub fn create_app_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_printings_card_code ON printings(card_code);
         CREATE INDEX IF NOT EXISTS idx_printings_collection ON printings(collection_id);
         ",
-    )?;
+    )
+    .await?;
 
     Ok(())
 }
