@@ -86,29 +86,6 @@ impl Catalog {
         Ok(())
     }
 
-    pub async fn get_info(&self) -> Result<String, Box<dyn std::error::Error>> {
-        let count = self.get_card_count().await?;
-
-        let last_updated = self
-            .conn
-            .query("SELECT value FROM meta WHERE key = 'catalog_version'", ())
-            .await?
-            .next()
-            .await?
-            .map(|r| r.get(0))
-            .transpose()?;
-
-        let info = format!(
-            "Card Catalog Info:\n\
-         - Cards: {}\n\
-         - Last Updated: {}",
-            count,
-            last_updated.unwrap_or_else(|| "Unknown (bundled snapshot)".to_string())
-        );
-
-        Ok(info)
-    }
-
     async fn seed_from_json(
         &mut self,
         cards_json: &str,
@@ -157,15 +134,42 @@ impl Catalog {
         Ok(())
     }
 
+    pub async fn get_info(&self) -> Result<String, Box<dyn std::error::Error>> {
+        let count = self.get_card_count().await?;
+
+        let row = self
+            .conn
+            .query("SELECT value FROM meta WHERE key = 'catalog_version'", ())
+            .await?
+            .next()
+            .await?;
+
+        let last_updated = match row {
+            Some(r) => r.get(0)?,
+            None => "Unknown (bundled snapshot)".to_string(),
+        };
+
+        let info = format!(
+            "Card Catalog Info:\n\
+         - Cards: {}\n\
+         - Last Updated: {}",
+            count, last_updated
+        );
+
+        Ok(info)
+    }
+
     async fn get_card_count(&self) -> Result<i64, Box<dyn std::error::Error>> {
-        Ok(self
+        let row = self
             .conn
             .query("SELECT COUNT(*) FROM cards", ())
             .await?
             .next()
-            .await?
-            .map(|r| r.get(0))
-            .transpose()?
-            .unwrap_or(0))
+            .await?;
+
+        Ok(match row {
+            Some(r) => r.get(0)?,
+            None => 0,
+        })
     }
 }

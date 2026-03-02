@@ -2,19 +2,15 @@ use crate::card_source::{CardSource, Cardlist, SetName};
 use crate::catalog::normalize_title;
 use crate::models::{CardRequest, Printing};
 use dirs;
-use rusqlite::{Connection, OptionalExtension, params};
+use turso::{Builder, Connection, params, params_from_iter};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-pub struct CardStore {
-    app_db_path: PathBuf,
-    collections_dir: PathBuf,
-}
 
 impl CardSource for Cardlist {
-    fn to_card_requests(&self) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
-        let store = CardStore::new()?;
-        let (requests, not_found) = store.parse_cardlist_into_card_requests(&self.0)?;
+    async fn to_card_requests(&self) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
+        let store = CardStore::new().await?;
+        let (requests, not_found) = store.parse_cardlist_into_card_requests(&self.0).await?;
 
         if !not_found.is_empty() {
             eprintln!("Warning: {} card(s) not found in catalog:", not_found.len());
@@ -29,26 +25,38 @@ impl CardSource for Cardlist {
 }
 
 impl CardSource for SetName {
-    fn to_card_requests(&self) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
-        let store = CardStore::new()?;
-        store.get_card_requests_from_set_name(&self.0)
+    async fn to_card_requests(&self) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
+        let store = CardStore::new().await?;
+        store.get_card_requests_from_set_name(&self.0).await
     }
 }
 
+pub struct CardStore {
+    collections_dir: PathBuf,
+    conn: Connection,
+}
+
 impl CardStore {
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let home = dirs::home_dir().ok_or("Could not find home directory")?;
         let proxynexus_dir = home.join(".proxynexus");
         let collections_dir = proxynexus_dir.join("collections");
-        let app_db_path = proxynexus_dir.join("proxynexus.db");
+
+        let app_db_path = proxynexus_dir
+            .join("proxynexus.db")
+            .to_string_lossy()
+            .to_string();
+        let db = Builder::new_local(&app_db_path).build().await?;
+        let conn = db.connect()?;
+        conn.execute("PRAGMA foreign_keys = ON", ()).await?;
 
         Ok(Self {
-            app_db_path,
             collections_dir,
+            conn,
         })
     }
 
-    fn parse_cardlist_into_card_requests(
+    async fn parse_cardlist_into_card_requests(
         &self,
         text: &str,
     ) -> Result<(Vec<CardRequest>, Vec<String>), Box<dyn std::error::Error>> {
@@ -61,9 +69,9 @@ impl CardStore {
                 continue;
             }
 
-            let (qty, rest) = self.parse_quantity(line);
+            let (qty, rest) = Self::parse_quantity(line);
             let (name, variant_pref, collection_pref, pack_code_pref) =
-                self.parse_overrides(rest)?;
+                Self::parse_overrides(rest)?;
 
             entries.push((name, qty, variant_pref, collection_pref, pack_code_pref));
         }
@@ -71,7 +79,7 @@ impl CardStore {
         let unique_titles: HashSet<&str> = entries.iter().map(|(name, ..)| *name).collect();
         let titles: Vec<&str> = unique_titles.into_iter().collect();
 
-        let (resolved_cards, not_found) = self.resolve_names_to_cards(&titles)?;
+        let (resolved_cards, not_found) = self.resolve_names_to_cards(&titles).await?;
 
         let mut requests = Vec::new();
 
@@ -94,7 +102,7 @@ impl CardStore {
         Ok((requests, not_found))
     }
 
-    fn parse_quantity<'a>(&self, line: &'a str) -> (u32, &'a str) {
+    fn parse_quantity(line: &str) -> (u32, &str) {
         if let Some((qty_str, card_name)) = line
             .split_once("x ")
             .filter(|(qty_str, _)| qty_str.chars().all(|c| c.is_ascii_digit()))
@@ -113,10 +121,9 @@ impl CardStore {
         }
     }
 
-    fn parse_overrides<'a>(
-        &self,
-        text: &'a str,
-    ) -> Result<(&'a str, Option<String>, Option<String>, Option<String>), Box<dyn std::error::Error>>
+    fn parse_overrides(
+        text: &str,
+    ) -> Result<(&str, Option<String>, Option<String>, Option<String>), Box<dyn std::error::Error>>
     {
         if let Some(bracket_start) = text.find('[') {
             let name = text[..bracket_start].trim();
@@ -149,35 +156,32 @@ impl CardStore {
         }
     }
 
-    fn resolve_names_to_cards(
+    async fn resolve_names_to_cards(
         &self,
         names: &[&str],
     ) -> Result<(HashMap<String, (String, String, String)>, Vec<String>), Box<dyn std::error::Error>>
     {
-        let conn = Connection::open(&self.app_db_path)?;
-        conn.execute("PRAGMA foreign_keys = ON", [])?;
-
         let mut title_to_card: HashMap<String, (String, String, String)> = HashMap::new();
         let mut not_found = Vec::new();
 
         for title in names {
             let normalized = normalize_title(title);
 
-            let result: Option<(String, String, String)> = conn
-                .query_row(
-                    "SELECT c.code, c.title, c.pack_code
+            let row = self
+                .conn
+                .query("SELECT c.code, c.title, c.pack_code
                      FROM cards c
                      JOIN packs p ON c.pack_code = p.code
                      WHERE c.title_normalized = ?1
                      ORDER BY p.date_release DESC NULLS LAST
-                     LIMIT 1",
-                    params![normalized],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                )
-                .optional()?;
+                     LIMIT 1", params![normalized])
+                .await?
+                .next()
+                .await?;
 
-            match result {
-                Some(card_data) => {
+            match row {
+                Some(r) => {
+                    let card_data = (r.get(0)?, r.get(1)?, r.get(2)?);
                     title_to_card.insert(title.to_string(), card_data);
                 }
                 None => not_found.push(title.to_string()),
@@ -187,11 +191,8 @@ impl CardStore {
         Ok((title_to_card, not_found))
     }
 
-    pub fn get_available_packs(&self) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
-        let conn = Connection::open(&self.app_db_path)?;
-        conn.execute("PRAGMA foreign_keys = ON", [])?;
-
-        let mut stmt = conn.prepare(
+    pub async fn get_available_packs(&self) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
+        let mut stmt = self.conn.prepare(
             "SELECT
                 pack_name,
                 GROUP_CONCAT(coll_count || ' in ' || coll_name, ', ') as meta
@@ -210,72 +211,66 @@ impl CardStore {
              )
              GROUP BY pack_code
              ORDER BY date_release",
-        )?;
+        ).await?;
+        let mut rows = stmt.query(()).await?;
+        let mut results = Vec::new();
 
-        let results = stmt
-            .query_map([], |row| {
-                let name: String = row.get(0)?;
-                let meta: Option<String> = row.get(1)?;
+        while let Some(row) = rows.next().await? {
+            let name: String = row.get(0)?;
+            let meta: Option<String> = row.get(1)?;
 
-                let display_meta = match meta {
-                    Some(m) => format!("# {}", m),
-                    None => "# no printings available".to_string(),
-                };
+            let display_meta = meta
+                .map(|m| format!("# {}", m))
+                .unwrap_or_else(|| "# no printings available".to_string());
 
-                Ok((name, display_meta))
-            })?
-            .collect::<Result<Vec<(String, String)>, _>>()?;
+            results.push((name, display_meta));
+        }
 
         Ok(results)
     }
 
-    fn get_card_requests_from_set_name(
+    async fn get_card_requests_from_set_name(
         &self,
         set_name: &str,
     ) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
-        let conn = Connection::open(&self.app_db_path)?;
-        conn.execute("PRAGMA foreign_keys = ON", [])?;
-
-        let mut stmt = conn.prepare(
+        let mut stmt = self.conn.prepare(
             "SELECT c.code, c.title, c.quantity
              FROM cards c
              JOIN packs p ON c.pack_code = p.code
              WHERE LOWER(p.name) = ?1
              ORDER BY c.code",
-        )?;
+        ).await?;
 
-        let rows = stmt
-            .query_map(params![set_name.to_lowercase()], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })?
-            .collect::<Result<Vec<(String, String, u32)>, _>>()?;
+        let mut rows = stmt.query(()).await?;
+        let mut results = Vec::new();
 
-        if rows.is_empty() {
-            return Err(format!("No cards found for set '{}'", set_name).into());
-        }
+        while let Some(row) = rows.next().await? {
+            let code: String = row.get(0)?;
+            let title: String = row.get(1)?;
+            let qty: u32 = row.get(2)?;
 
-        Ok(rows
-            .into_iter()
-            .flat_map(|(code, title, qty)| {
+            results.extend(
                 std::iter::repeat(CardRequest {
                     title: title.clone(),
                     code: code.clone(),
                     variant: None,
                     collection: None,
                     pack_code: None,
-                })
-                .take(qty as usize)
-            })
-            .collect())
+                }).take(qty as usize),
+            );
+        }
+
+        if results.is_empty() {
+            return Err(format!("No cards found for set '{}'", set_name).into());
+        }
+
+        Ok(results)
     }
 
-    pub fn get_available_printings(
+    pub async fn get_available_printings(
         &self,
         card_requests: &[CardRequest],
     ) -> Result<HashMap<String, Vec<Printing>>, Box<dyn std::error::Error>> {
-        let conn = Connection::open(&self.app_db_path)?;
-        conn.execute("PRAGMA foreign_keys = ON", [])?;
-
         let unique_titles: HashSet<String> = card_requests
             .iter()
             .map(|r| normalize_title(&r.title))
@@ -303,11 +298,11 @@ impl CardStore {
             placeholders
         );
 
-        let mut stmt = conn.prepare(&query)?;
-        let mut rows = stmt.query(rusqlite::params_from_iter(unique_titles.iter()))?;
+        let mut stmt = self.conn.prepare(&query).await?;
+        let mut rows = stmt.query(params_from_iter(unique_titles)).await?;
 
         let mut map: HashMap<String, Vec<Printing>> = HashMap::new();
-        while let Some(row) = rows.next()? {
+        while let Some(row) = rows.next().await? {
             let title: String = row.get(0)?;
             let normalized = normalize_title(&title);
             let relative_path: String = row.get(3)?;
@@ -352,7 +347,7 @@ impl CardStore {
             let normalized = normalize_title(&request.title);
 
             if let Some(printings) = available.get(&normalized) {
-                match self.select_printing(request, printings) {
+                match Self::select_printing(request, printings) {
                     Ok(printing) => result.push(printing),
                     Err(e) => {
                         eprintln!("Warning: {}", e);
@@ -369,7 +364,6 @@ impl CardStore {
     }
 
     pub fn select_printing(
-        &self,
         request: &CardRequest,
         printings: &[Printing],
     ) -> Result<Printing, Box<dyn std::error::Error>> {
@@ -428,11 +422,6 @@ mod tests {
 
     #[test]
     fn test_select_printing_prioritization() {
-        let store = CardStore {
-            app_db_path: PathBuf::new(),
-            collections_dir: PathBuf::from("/tmp"),
-        };
-
         let p1 = mock_printing("original", "ffg-en", "core");
         let p2 = mock_printing("alt1", "standard", "core");
         let p3 = mock_printing("original", "alt-arts", "core");
@@ -447,7 +436,7 @@ mod tests {
             pack_code: None,
         };
         assert_eq!(
-            store.select_printing(&req, &available).unwrap().variant,
+            CardStore::select_printing(&req, &available).unwrap().variant,
             "alt1"
         );
 
@@ -460,7 +449,7 @@ mod tests {
             pack_code: None,
         };
         assert_eq!(
-            store.select_printing(&req, &available).unwrap().collection,
+            CardStore::select_printing(&req, &available).unwrap().collection,
             "alt-arts"
         );
 
@@ -474,34 +463,23 @@ mod tests {
         };
         // Return the first item found
         assert_eq!(
-            store.select_printing(&req, &available).unwrap().variant,
+            CardStore::select_printing(&req, &available).unwrap().variant,
             "original"
         );
     }
 
     #[test]
     fn test_parse_quantity() {
-        let store = CardStore {
-            app_db_path: PathBuf::new(),
-            collections_dir: PathBuf::from("/tmp"),
-        };
-
-        assert_eq!(store.parse_quantity("3x Sure Gamble"), (3, "Sure Gamble"));
-        assert_eq!(store.parse_quantity("3 Sure Gamble"), (3, "Sure Gamble"));
-        assert_eq!(store.parse_quantity("Sure Gamble"), (1, "Sure Gamble"));
-        assert_eq!(store.parse_quantity("10x Hedge Fund"), (10, "Hedge Fund"));
+        assert_eq!(CardStore::parse_quantity("3x Sure Gamble"), (3, "Sure Gamble"));
+        assert_eq!(CardStore::parse_quantity("3 Sure Gamble"), (3, "Sure Gamble"));
+        assert_eq!(CardStore::parse_quantity("Sure Gamble"), (1, "Sure Gamble"));
+        assert_eq!(CardStore::parse_quantity("10x Hedge Fund"), (10, "Hedge Fund"));
     }
 
     #[test]
     fn test_parse_overrides() {
-        let store = CardStore {
-            app_db_path: PathBuf::new(),
-            collections_dir: PathBuf::from("/tmp"),
-        };
-
         // Full override
-        let (name, v, c, p) = store
-            .parse_overrides("Sure Gamble [alt:ffg-en:core]")
+        let (name, v, c, p) = CardStore::parse_overrides("Sure Gamble [alt:ffg-en:core]")
             .unwrap();
         assert_eq!(name, "Sure Gamble");
         assert_eq!(v, Some("alt".to_string()));
@@ -509,19 +487,19 @@ mod tests {
         assert_eq!(p, Some("core".to_string()));
 
         // Partial, variant only
-        let (_, v, c, p) = store.parse_overrides("Sure Gamble [alt]").unwrap();
+        let (_, v, c, p) = CardStore::parse_overrides("Sure Gamble [alt]").unwrap();
         assert_eq!(v, Some("alt".to_string()));
         assert_eq!(c, None);
         assert_eq!(p, None);
 
         // Partial, skipped slots
-        let (_, v, c, p) = store.parse_overrides("Sure Gamble [:std:]").unwrap();
+        let (_, v, c, p) = CardStore::parse_overrides("Sure Gamble [:std:]").unwrap();
         assert_eq!(v, None);
         assert_eq!(c, Some("std".to_string()));
         assert_eq!(p, None);
 
         // Case normalization in overrides
-        let (_, v, _, _) = store.parse_overrides("Card [ALT]").unwrap();
+        let (_, v, _, _) = CardStore::parse_overrides("Card [ALT]").unwrap();
         assert_eq!(v, Some("alt".to_string()));
     }
 }
