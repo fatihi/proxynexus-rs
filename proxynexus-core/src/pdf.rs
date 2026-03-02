@@ -50,15 +50,15 @@ fn calculate_card_position(card_index: usize, page_size: &PageSize) -> (f32, f32
     (x, y)
 }
 
-pub fn generate_pdf(
+pub async fn generate_pdf(
     card_source: &impl CardSource,
     output_path: &Path,
     page_size: PageSize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let card_requests = card_source.to_card_requests()?;
+    let card_requests = card_source.to_card_requests().await?;
 
-    let store = CardStore::new()?;
-    let available = store.get_available_printings(&card_requests)?;
+    let store = CardStore::new().await?;
+    let available = store.get_available_printings(&card_requests).await?;
     let printings = store.resolve_printings(&card_requests, &available)?;
     let image_paths: Vec<PathBuf> = printings.iter().map(|p| p.file_path.clone()).collect();
 

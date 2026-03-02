@@ -9,14 +9,14 @@ use std::path::Path;
 use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
 
-pub fn generate_mpc_zip(
+pub async fn generate_mpc_zip(
     card_source: &impl CardSource,
     output_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let card_requests = card_source.to_card_requests()?;
+    let card_requests = card_source.to_card_requests().await?;
 
-    let store = CardStore::new()?;
-    let available = store.get_available_printings(&card_requests)?;
+    let store = CardStore::new().await?;
+    let available = store.get_available_printings(&card_requests).await?;
     let printings = store.resolve_printings(&card_requests, &available)?;
 
     let mut sides: HashMap<String, Vec<Printing>> = HashMap::new();
