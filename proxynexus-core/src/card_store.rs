@@ -1,11 +1,11 @@
 use crate::card_source::{CardSource, Cardlist, SetName};
 use crate::catalog::normalize_title;
+use crate::db_schema::build_placeholders;
 use crate::models::{CardRequest, Printing};
 use dirs;
-use turso::{Builder, Connection, params, params_from_iter};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-
+use turso::{Builder, Connection, params_from_iter};
 
 impl CardSource for Cardlist {
     async fn to_card_requests(&self) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
@@ -85,8 +85,8 @@ impl CardStore {
 
         for (name, qty, variant, collection, requested_pack_code) in entries {
             if let Some((code, title, resolved_pack_code)) = resolved_cards.get(name) {
-                for _ in 0..qty {
-                    requests.push(CardRequest {
+                requests.extend(
+                    std::iter::repeat(CardRequest {
                         title: title.clone(),
                         code: code.clone(),
                         variant: variant.clone(),
@@ -94,8 +94,9 @@ impl CardStore {
                         pack_code: requested_pack_code
                             .clone()
                             .or_else(|| Some(resolved_pack_code.clone())),
-                    });
-                }
+                    })
+                    .take(qty as usize),
+                );
             }
         }
 
@@ -161,39 +162,63 @@ impl CardStore {
         names: &[&str],
     ) -> Result<(HashMap<String, (String, String, String)>, Vec<String>), Box<dyn std::error::Error>>
     {
+        if names.is_empty() {
+            return Ok((HashMap::new(), Vec::new()));
+        }
+
         let mut title_to_card: HashMap<String, (String, String, String)> = HashMap::new();
         let mut not_found = Vec::new();
 
+        let normalized_names: Vec<String> = names.iter().map(|n| normalize_title(n)).collect();
+        let placeholders = build_placeholders(normalized_names.len());
+
+        let query = format!(
+            "SELECT c.code, c.title, c.pack_code, c.title_normalized
+             FROM cards c
+             JOIN packs p ON c.pack_code = p.code
+             WHERE c.title_normalized IN ({})
+             ORDER BY p.date_release DESC NULLS LAST",
+            placeholders
+        );
+
+        let mut stmt = self.conn.prepare(&query).await?;
+        let mut rows = stmt.query(params_from_iter(normalized_names)).await?;
+
+        let mut resolved_map: HashMap<String, (String, String, String)> = HashMap::new();
+        while let Some(row) = rows.next().await? {
+            let code: String = row.get(0)?;
+            let title: String = row.get(1)?;
+            let pack_code: String = row.get(2)?;
+            let norm: String = row.get(3)?;
+
+            resolved_map.entry(norm).or_insert((code, title, pack_code));
+        }
+
+        if resolved_map.is_empty() && !names.is_empty() {
+            return Err(
+                "No card titles found in the local catalog. Is your catalog seeded?".into(),
+            );
+        }
+
         for title in names {
             let normalized = normalize_title(title);
-
-            let row = self
-                .conn
-                .query("SELECT c.code, c.title, c.pack_code
-                     FROM cards c
-                     JOIN packs p ON c.pack_code = p.code
-                     WHERE c.title_normalized = ?1
-                     ORDER BY p.date_release DESC NULLS LAST
-                     LIMIT 1", params![normalized])
-                .await?
-                .next()
-                .await?;
-
-            match row {
-                Some(r) => {
-                    let card_data = (r.get(0)?, r.get(1)?, r.get(2)?);
-                    title_to_card.insert(title.to_string(), card_data);
-                }
-                None => not_found.push(title.to_string()),
+            if let Some(card_data) = resolved_map.get(&normalized) {
+                title_to_card.insert(title.to_string(), card_data.clone());
+            } else {
+                not_found.push(title.to_string());
             }
         }
 
         Ok((title_to_card, not_found))
     }
 
-    pub async fn get_available_packs(&self) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT
+    pub async fn get_available_packs(
+        &self,
+    ) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT
                 pack_name,
                 GROUP_CONCAT(coll_count || ' in ' || coll_name, ', ') as meta
              FROM (
@@ -211,7 +236,8 @@ impl CardStore {
              )
              GROUP BY pack_code
              ORDER BY date_release",
-        ).await?;
+            )
+            .await?;
         let mut rows = stmt.query(()).await?;
         let mut results = Vec::new();
 
@@ -233,13 +259,16 @@ impl CardStore {
         &self,
         set_name: &str,
     ) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT c.code, c.title, c.quantity
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT c.code, c.title, c.quantity
              FROM cards c
              JOIN packs p ON c.pack_code = p.code
              WHERE LOWER(p.name) = ?1
              ORDER BY c.code",
-        ).await?;
+            )
+            .await?;
 
         let mut rows = stmt.query(()).await?;
         let mut results = Vec::new();
@@ -256,7 +285,8 @@ impl CardStore {
                     variant: None,
                     collection: None,
                     pack_code: None,
-                }).take(qty as usize),
+                })
+                .take(qty as usize),
             );
         }
 
@@ -265,6 +295,60 @@ impl CardStore {
         }
 
         Ok(results)
+    }
+
+    pub async fn resolve_codes_to_card_requests(
+        &self,
+        codes: &HashMap<String, u32>,
+    ) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
+        if codes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders = build_placeholders(codes.len());
+
+        let query = format!(
+            "SELECT code, title FROM cards WHERE code IN ({})",
+            placeholders
+        );
+
+        let mut stmt = self.conn.prepare(&query).await?;
+        let mut rows = stmt.query(params_from_iter(codes.keys().cloned())).await?;
+
+        let mut resolved_titles = HashMap::new();
+        while let Some(row) = rows.next().await? {
+            let code: String = row.get(0)?;
+            let title: String = row.get(1)?;
+            resolved_titles.insert(code, title);
+        }
+
+        if resolved_titles.is_empty() && !codes.is_empty() {
+            return Err("No card codes found in the local catalog. Is your catalog seeded?".into());
+        }
+
+        let mut requests = Vec::new();
+        for (code, qty) in codes {
+            if let Some(title) = resolved_titles.get(code) {
+                requests.extend(
+                    std::iter::repeat(CardRequest {
+                        title: title.clone(),
+                        code: code.clone(),
+                        variant: None,
+                        collection: None,
+                        pack_code: None,
+                    })
+                    .take(*qty as usize),
+                );
+            } else {
+                eprintln!(
+                    "Warning: Card code '{}' from NetrunnerDB not found in local catalog",
+                    code
+                );
+                eprintln!("  Consider running 'proxynexus catalog update'");
+            }
+        }
+
+        Ok(requests)
     }
 
     pub async fn get_available_printings(
@@ -276,14 +360,7 @@ impl CardStore {
             .map(|r| normalize_title(&r.title))
             .collect();
 
-        // build the "?1, ?2, ?3, ..." string for the in clause
-        let placeholders = unique_titles
-            .iter()
-            .enumerate()
-            .map(|(i, _)| format!("?{}", i + 1))
-            .collect::<Vec<_>>()
-            .join(", ");
-
+        let placeholders = build_placeholders(unique_titles.len());
         let query = format!(
             "SELECT c.title, c.code, p.variant, p.file_path, col.name, c.side, c.pack_code
              FROM printings p
@@ -301,7 +378,7 @@ impl CardStore {
         let mut stmt = self.conn.prepare(&query).await?;
         let mut rows = stmt.query(params_from_iter(unique_titles)).await?;
 
-        let mut map: HashMap<String, Vec<Printing>> = HashMap::new();
+        let mut resolved_printings: HashMap<String, Vec<Printing>> = HashMap::new();
         while let Some(row) = rows.next().await? {
             let title: String = row.get(0)?;
             let normalized = normalize_title(&title);
@@ -315,13 +392,20 @@ impl CardStore {
                 side: row.get(5)?,
                 pack_code: row.get(6)?,
             };
-            map.entry(normalized).or_default().push(printing);
+            resolved_printings
+                .entry(normalized)
+                .or_default()
+                .push(printing);
+        }
+
+        if resolved_printings.is_empty() && !card_requests.is_empty() {
+            return Err("No printings found in your collections for any requested cards.".into());
         }
 
         let mut missing_titles = HashSet::new();
         for req in card_requests {
             let norm = normalize_title(&req.title);
-            if !map.contains_key(&norm) && missing_titles.insert(norm) {
+            if !resolved_printings.contains_key(&norm) && missing_titles.insert(norm) {
                 eprintln!(
                     "Warning: No printings found for '{}' in your collections.",
                     req.title
@@ -329,11 +413,7 @@ impl CardStore {
             }
         }
 
-        if map.is_empty() && !card_requests.is_empty() {
-            return Err("No printings found in your collections for any requested cards.".into());
-        }
-
-        Ok(map)
+        Ok(resolved_printings)
     }
 
     pub fn resolve_printings(
@@ -436,7 +516,9 @@ mod tests {
             pack_code: None,
         };
         assert_eq!(
-            CardStore::select_printing(&req, &available).unwrap().variant,
+            CardStore::select_printing(&req, &available)
+                .unwrap()
+                .variant,
             "alt1"
         );
 
@@ -449,7 +531,9 @@ mod tests {
             pack_code: None,
         };
         assert_eq!(
-            CardStore::select_printing(&req, &available).unwrap().collection,
+            CardStore::select_printing(&req, &available)
+                .unwrap()
+                .collection,
             "alt-arts"
         );
 
@@ -463,24 +547,34 @@ mod tests {
         };
         // Return the first item found
         assert_eq!(
-            CardStore::select_printing(&req, &available).unwrap().variant,
+            CardStore::select_printing(&req, &available)
+                .unwrap()
+                .variant,
             "original"
         );
     }
 
     #[test]
     fn test_parse_quantity() {
-        assert_eq!(CardStore::parse_quantity("3x Sure Gamble"), (3, "Sure Gamble"));
-        assert_eq!(CardStore::parse_quantity("3 Sure Gamble"), (3, "Sure Gamble"));
+        assert_eq!(
+            CardStore::parse_quantity("3x Sure Gamble"),
+            (3, "Sure Gamble")
+        );
+        assert_eq!(
+            CardStore::parse_quantity("3 Sure Gamble"),
+            (3, "Sure Gamble")
+        );
         assert_eq!(CardStore::parse_quantity("Sure Gamble"), (1, "Sure Gamble"));
-        assert_eq!(CardStore::parse_quantity("10x Hedge Fund"), (10, "Hedge Fund"));
+        assert_eq!(
+            CardStore::parse_quantity("10x Hedge Fund"),
+            (10, "Hedge Fund")
+        );
     }
 
     #[test]
     fn test_parse_overrides() {
         // Full override
-        let (name, v, c, p) = CardStore::parse_overrides("Sure Gamble [alt:ffg-en:core]")
-            .unwrap();
+        let (name, v, c, p) = CardStore::parse_overrides("Sure Gamble [alt:ffg-en:core]").unwrap();
         assert_eq!(name, "Sure Gamble");
         assert_eq!(v, Some("alt".to_string()));
         assert_eq!(c, Some("ffg-en".to_string()));
