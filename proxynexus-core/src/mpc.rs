@@ -65,8 +65,13 @@ fn process_side(
             .or_insert(1);
 
         let img = image::open(&printing.file_path)?;
+
+        #[cfg(not(target_arch = "wasm32"))]
         let start = std::time::Instant::now();
+
         let bordered_bytes = generate_bordered_image(&img, *copy_num)?;
+
+        #[cfg(not(target_arch = "wasm32"))]
         eprintln!(
             "generate_bordered_image runtime for {:?}: {:?}",
             printing.file_path,

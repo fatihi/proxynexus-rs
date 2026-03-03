@@ -62,11 +62,15 @@ impl Catalog {
     }
 
     pub async fn update_from_api(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let cards_json =
-            reqwest::blocking::get("https://netrunnerdb.com/api/2.0/public/cards")?.text()?;
+        let cards_json = reqwest::get("https://netrunnerdb.com/api/2.0/public/cards")
+            .await?
+            .text()
+            .await?;
 
-        let packs_json =
-            reqwest::blocking::get("https://netrunnerdb.com/api/2.0/public/packs")?.text()?;
+        let packs_json = reqwest::get("https://netrunnerdb.com/api/2.0/public/packs")
+            .await?
+            .text()
+            .await?;
 
         self.seed_from_json(&cards_json, &packs_json).await?;
 
@@ -93,6 +97,8 @@ impl Catalog {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let cards_response: CardsResponse = serde_json::from_str(cards_json)?;
         let packs_response: PacksResponse = serde_json::from_str(packs_json)?;
+
+        self.conn.execute("PRAGMA foreign_keys = OFF", ()).await?;
 
         let tx = self.conn.transaction().await?;
 
@@ -130,6 +136,8 @@ impl Catalog {
         .await?;
 
         tx.commit().await?;
+
+        self.conn.execute("PRAGMA foreign_keys = ON", ()).await?;
 
         Ok(())
     }

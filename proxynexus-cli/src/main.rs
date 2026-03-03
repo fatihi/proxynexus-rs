@@ -4,7 +4,7 @@ use proxynexus_core::catalog::Catalog;
 use proxynexus_core::collection_builder::build_collection;
 use proxynexus_core::collection_manager::CollectionManager;
 use proxynexus_core::mpc::generate_mpc_zip;
-use proxynexus_core::pdf::{generate_pdf, PageSize};
+use proxynexus_core::pdf::{PageSize, generate_pdf};
 use proxynexus_core::query::{generate_query_output, list_available_sets};
 use std::path::PathBuf;
 
@@ -190,7 +190,7 @@ async fn handle_collection_action(
             Ok(())
         }
         CollectionAction::Add { path } => {
-            let manager = CollectionManager::new()
+            let mut manager = CollectionManager::new()
                 .await
                 .map_err(|e| format!("Failed to initialize collection manager: {}", e))?;
             manager
@@ -331,8 +331,12 @@ async fn handle_generate(output_type: GenerateType) -> Result<(), Box<dyn std::e
             let start = std::time::Instant::now();
 
             match source {
-                InputSource::Cardlist(list) => generate_mpc_zip(&Cardlist(list), &output_path).await?,
-                InputSource::SetName(name) => generate_mpc_zip(&SetName(name), &output_path).await?,
+                InputSource::Cardlist(list) => {
+                    generate_mpc_zip(&Cardlist(list), &output_path).await?
+                }
+                InputSource::SetName(name) => {
+                    generate_mpc_zip(&SetName(name), &output_path).await?
+                }
                 InputSource::NrdbUrl(url) => generate_mpc_zip(&NrdbUrl(url), &output_path).await?,
             }
 

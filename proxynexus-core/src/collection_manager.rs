@@ -32,7 +32,10 @@ impl CollectionManager {
         })
     }
 
-    pub async fn add_collection(&self, pnx_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn add_collection(
+        &mut self,
+        pnx_path: &Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if !pnx_path.exists() {
             return Err(format!("File not found: {:?}", pnx_path).into());
         }
@@ -89,6 +92,7 @@ impl CollectionManager {
         let src_images = temp_path.join("images");
 
         let mut printings_added = 0;
+        let tx = self.conn.transaction().await?;
 
         for entry in fs::read_dir(&src_images)? {
             let entry = entry?;
@@ -102,19 +106,20 @@ impl CollectionManager {
             let file_name = path.file_name().unwrap().to_string_lossy();
             let file_path = format!("{}/{}", collection_name, file_name);
 
-            self.conn
-                .execute(
-                    "INSERT INTO printings (collection_id, card_code, variant, file_path)
+            tx.execute(
+                "INSERT INTO printings (collection_id, card_code, variant, file_path)
                  VALUES (?1, ?2, ?3, ?4)",
-                    params![collection_id, card_code, variant, file_path,],
-                )
-                .await?;
+                params![collection_id, card_code, variant, file_path,],
+            )
+            .await?;
 
             let dst_path = collection_dir.join(path.file_name().unwrap());
             fs::copy(entry.path(), dst_path)?;
 
             printings_added += 1;
         }
+
+        tx.commit().await?;
 
         println!("Added {} printings", printings_added);
         println!("Collection '{}' added successfully!", collection_name);

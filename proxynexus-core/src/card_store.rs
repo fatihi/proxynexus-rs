@@ -5,7 +5,7 @@ use crate::models::{CardRequest, Printing};
 use dirs;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use turso::{Builder, Connection, params_from_iter};
+use turso::{Builder, Connection, params, params_from_iter};
 
 impl CardSource for Cardlist {
     async fn to_card_requests(&self) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
@@ -76,8 +76,11 @@ impl CardStore {
             entries.push((name, qty, variant_pref, collection_pref, pack_code_pref));
         }
 
-        let unique_titles: HashSet<&str> = entries.iter().map(|(name, ..)| *name).collect();
-        let titles: Vec<&str> = unique_titles.into_iter().collect();
+        let unique_titles: HashSet<String> = entries
+            .iter()
+            .map(|(name, ..)| normalize_title(name))
+            .collect();
+        let titles: Vec<&str> = unique_titles.iter().map(|s| s.as_str()).collect();
 
         let (resolved_cards, not_found) = self.resolve_names_to_cards(&titles).await?;
 
@@ -85,8 +88,8 @@ impl CardStore {
 
         for (name, qty, variant, collection, requested_pack_code) in entries {
             if let Some((code, title, resolved_pack_code)) = resolved_cards.get(name) {
-                requests.extend(
-                    std::iter::repeat(CardRequest {
+                requests.extend(std::iter::repeat_n(
+                    CardRequest {
                         title: title.clone(),
                         code: code.clone(),
                         variant: variant.clone(),
@@ -94,9 +97,9 @@ impl CardStore {
                         pack_code: requested_pack_code
                             .clone()
                             .or_else(|| Some(resolved_pack_code.clone())),
-                    })
-                    .take(qty as usize),
-                );
+                    },
+                    qty as usize,
+                ));
             }
         }
 
@@ -169,20 +172,19 @@ impl CardStore {
         let mut title_to_card: HashMap<String, (String, String, String)> = HashMap::new();
         let mut not_found = Vec::new();
 
-        let normalized_names: Vec<String> = names.iter().map(|n| normalize_title(n)).collect();
-        let placeholders = build_placeholders(normalized_names.len());
+        let placeholders = build_placeholders(names.len());
 
         let query = format!(
             "SELECT c.code, c.title, c.pack_code, c.title_normalized
              FROM cards c
              JOIN packs p ON c.pack_code = p.code
              WHERE c.title_normalized IN ({})
-             ORDER BY p.date_release DESC NULLS LAST",
+             ORDER BY (p.date_release IS NULL) ASC, p.date_release DESC",
             placeholders
         );
 
         let mut stmt = self.conn.prepare(&query).await?;
-        let mut rows = stmt.query(params_from_iter(normalized_names)).await?;
+        let mut rows = stmt.query(params_from_iter(names.iter().cloned())).await?;
 
         let mut resolved_map: HashMap<String, (String, String, String)> = HashMap::new();
         while let Some(row) = rows.next().await? {
@@ -201,8 +203,7 @@ impl CardStore {
         }
 
         for title in names {
-            let normalized = normalize_title(title);
-            if let Some(card_data) = resolved_map.get(&normalized) {
+            if let Some(card_data) = resolved_map.get(*title) {
                 title_to_card.insert(title.to_string(), card_data.clone());
             } else {
                 not_found.push(title.to_string());
@@ -270,7 +271,7 @@ impl CardStore {
             )
             .await?;
 
-        let mut rows = stmt.query(()).await?;
+        let mut rows = stmt.query(params![set_name.to_lowercase()]).await?;
         let mut results = Vec::new();
 
         while let Some(row) = rows.next().await? {
@@ -278,16 +279,16 @@ impl CardStore {
             let title: String = row.get(1)?;
             let qty: u32 = row.get(2)?;
 
-            results.extend(
-                std::iter::repeat(CardRequest {
+            results.extend(std::iter::repeat_n(
+                CardRequest {
                     title: title.clone(),
                     code: code.clone(),
                     variant: None,
                     collection: None,
                     pack_code: None,
-                })
-                .take(qty as usize),
-            );
+                },
+                qty as usize,
+            ));
         }
 
         if results.is_empty() {
@@ -329,16 +330,16 @@ impl CardStore {
         let mut requests = Vec::new();
         for (code, qty) in codes {
             if let Some(title) = resolved_titles.get(code) {
-                requests.extend(
-                    std::iter::repeat(CardRequest {
+                requests.extend(std::iter::repeat_n(
+                    CardRequest {
                         title: title.clone(),
                         code: code.clone(),
                         variant: None,
                         collection: None,
                         pack_code: None,
-                    })
-                    .take(*qty as usize),
-                );
+                    },
+                    *qty as usize,
+                ));
             } else {
                 eprintln!(
                     "Warning: Card code '{}' from NetrunnerDB not found in local catalog",

@@ -4,4 +4,5 @@ members = [
     "proxynexus-core",
     "proxynexus-gui",
 ]
+default-members = ["proxynexus-cli"]
 resolver = "2"
