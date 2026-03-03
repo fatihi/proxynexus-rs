@@ -6,16 +6,18 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
+use turso::Connection;
 use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
 
 pub async fn generate_mpc_zip(
     card_source: &impl CardSource,
     output_path: &Path,
+    conn: &Connection,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let card_requests = card_source.to_card_requests().await?;
+    let store = CardStore::new(conn.clone())?;
+    let card_requests = card_source.to_card_requests(&store).await?;
 
-    let store = CardStore::new().await?;
     let available = store.get_available_printings(&card_requests).await?;
     let printings = store.resolve_printings(&card_requests, &available)?;
 
@@ -23,7 +25,7 @@ pub async fn generate_mpc_zip(
     for printing in printings {
         sides
             .entry(printing.side.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(printing);
     }
 

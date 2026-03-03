@@ -2,7 +2,7 @@ use crate::models::Manifest;
 use dirs;
 use std::fs;
 use std::path::{Path, PathBuf};
-use turso::{Builder, Connection, params};
+use turso::{Connection, params};
 use zip::ZipArchive;
 
 pub struct CollectionManager {
@@ -11,18 +11,11 @@ pub struct CollectionManager {
 }
 
 impl CollectionManager {
-    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(conn: Connection) -> Result<Self, Box<dyn std::error::Error>> {
         let home = dirs::home_dir().ok_or("Could not find home directory")?;
 
         let proxynexus_dir = home.join(".proxynexus");
         let collections_dir = proxynexus_dir.join("collections");
-        let app_db_path = proxynexus_dir
-            .join("proxynexus.db")
-            .to_string_lossy()
-            .to_string();
-        let db = Builder::new_local(&app_db_path).build().await?;
-        let conn = db.connect()?;
-        conn.execute("PRAGMA foreign_keys = ON", ()).await?;
 
         fs::create_dir_all(&collections_dir)?;
 

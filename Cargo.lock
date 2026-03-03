@@ -4408,8 +4408,10 @@ name = "proxynexus-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "dirs",
  "proxynexus-core",
  "tokio",
+ "turso",
 ]
 
 [[package]]

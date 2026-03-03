@@ -5,11 +5,13 @@ use crate::models::{CardRequest, Printing};
 use dirs;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use turso::{Builder, Connection, params, params_from_iter};
+use turso::{Connection, params, params_from_iter};
 
 impl CardSource for Cardlist {
-    async fn to_card_requests(&self) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
-        let store = CardStore::new().await?;
+    async fn to_card_requests(
+        &self,
+        store: &CardStore,
+    ) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
         let (requests, not_found) = store.parse_cardlist_into_card_requests(&self.0).await?;
 
         if !not_found.is_empty() {
@@ -25,8 +27,10 @@ impl CardSource for Cardlist {
 }
 
 impl CardSource for SetName {
-    async fn to_card_requests(&self) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
-        let store = CardStore::new().await?;
+    async fn to_card_requests(
+        &self,
+        store: &CardStore,
+    ) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
         store.get_card_requests_from_set_name(&self.0).await
     }
 }
@@ -37,18 +41,10 @@ pub struct CardStore {
 }
 
 impl CardStore {
-    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(conn: Connection) -> Result<Self, Box<dyn std::error::Error>> {
         let home = dirs::home_dir().ok_or("Could not find home directory")?;
         let proxynexus_dir = home.join(".proxynexus");
         let collections_dir = proxynexus_dir.join("collections");
-
-        let app_db_path = proxynexus_dir
-            .join("proxynexus.db")
-            .to_string_lossy()
-            .to_string();
-        let db = Builder::new_local(&app_db_path).build().await?;
-        let conn = db.connect()?;
-        conn.execute("PRAGMA foreign_keys = ON", ()).await?;
 
         Ok(Self {
             collections_dir,
@@ -149,7 +145,7 @@ impl CardStore {
                 })
                 .collect();
 
-            let variant = parts.get(0).cloned().flatten();
+            let variant = parts.first().cloned().flatten();
             let collection = parts.get(1).cloned().flatten();
             let pack_code = parts.get(2).cloned().flatten();
 

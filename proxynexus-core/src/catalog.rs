@@ -1,8 +1,7 @@
-use crate::db_schema;
 use crate::models::{Card, Pack};
 use serde::Deserialize;
 use std::path::PathBuf;
-use turso::{Builder, Connection, params};
+use turso::{Connection, params};
 
 const CARDS_JSON: &str = include_str!("../data/netrunnerdb_cards.json");
 const PACKS_JSON: &str = include_str!("../data/netrunnerdb_packs.json");
@@ -31,22 +30,8 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let home = dirs::home_dir().ok_or("Could not find home directory")?;
-        let proxynexus_dir = home.join(".proxynexus");
-        std::fs::create_dir_all(&proxynexus_dir)?;
-
-        let app_db_path = proxynexus_dir
-            .join("proxynexus.db")
-            .to_string_lossy()
-            .to_string();
-
-        let db = Builder::new_local(&app_db_path).build().await?;
-        let conn = db.connect()?;
-        conn.execute("PRAGMA foreign_keys = ON", ()).await?;
-        db_schema::create_app_schema(&conn).await?;
-
-        Ok(Self { conn })
+    pub fn new(conn: Connection) -> Self {
+        Self { conn }
     }
 
     pub async fn seed_if_empty(&mut self) -> Result<(), Box<dyn std::error::Error>> {

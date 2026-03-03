@@ -6,6 +6,7 @@ use krilla::geom::{Size, Transform};
 use krilla::image::Image;
 use krilla::page::PageSettings;
 use std::path::{Path, PathBuf};
+use turso::Connection;
 
 const POINTS_PER_INCH: f32 = 72.0;
 
@@ -54,10 +55,11 @@ pub async fn generate_pdf(
     card_source: &impl CardSource,
     output_path: &Path,
     page_size: PageSize,
+    conn: &Connection,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let card_requests = card_source.to_card_requests().await?;
+    let store = CardStore::new(conn.clone())?;
+    let card_requests = card_source.to_card_requests(&store).await?;
 
-    let store = CardStore::new().await?;
     let available = store.get_available_printings(&card_requests).await?;
     let printings = store.resolve_printings(&card_requests, &available)?;
     let image_paths: Vec<PathBuf> = printings.iter().map(|p| p.file_path.clone()).collect();

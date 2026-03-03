@@ -10,3 +10,11 @@ pub mod mpc;
 pub mod netrunnerdb;
 pub mod pdf;
 pub mod query;
+
+use turso::Connection;
+
+pub async fn setup_database(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
+    conn.execute("PRAGMA foreign_keys = ON", ()).await?;
+    db_schema::create_app_schema(conn).await?;
+    Ok(())
+}
