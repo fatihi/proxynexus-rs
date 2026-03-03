@@ -1,32 +1,38 @@
 use crate::models::Manifest;
 use dirs;
-use rusqlite::{Connection, OptionalExtension, params};
 use std::fs;
 use std::path::{Path, PathBuf};
+use turso::{Builder, Connection, params};
 use zip::ZipArchive;
 
 pub struct CollectionManager {
-    app_db_path: PathBuf,
     collections_dir: PathBuf,
+    conn: Connection,
 }
 
 impl CollectionManager {
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let home = dirs::home_dir().ok_or("Could not find home directory")?;
 
         let proxynexus_dir = home.join(".proxynexus");
         let collections_dir = proxynexus_dir.join("collections");
-        let app_db_path = proxynexus_dir.join("proxynexus.db");
+        let app_db_path = proxynexus_dir
+            .join("proxynexus.db")
+            .to_string_lossy()
+            .to_string();
+        let db = Builder::new_local(&app_db_path).build().await?;
+        let conn = db.connect()?;
+        conn.execute("PRAGMA foreign_keys = ON", ()).await?;
 
         fs::create_dir_all(&collections_dir)?;
 
         Ok(Self {
-            app_db_path,
             collections_dir,
+            conn,
         })
     }
 
-    pub fn add_collection(&self, pnx_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn add_collection(&self, pnx_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         if !pnx_path.exists() {
             return Err(format!("File not found: {:?}", pnx_path).into());
         }
@@ -53,30 +59,31 @@ impl CollectionManager {
             collection_name, manifest.version, manifest.language
         );
 
-        let conn = Connection::open(&self.app_db_path)?;
-        conn.execute("PRAGMA foreign_keys = ON", [])?;
-
-        let existing: Option<i64> = conn
-            .query_row(
+        let row = self
+            .conn
+            .query(
                 "SELECT id FROM collections WHERE name = ?1",
-                params![&collection_name],
-                |row| row.get(0),
+                params![collection_name.clone()],
             )
-            .optional()?;
+            .await?
+            .next()
+            .await?;
 
-        if existing.is_some() {
+        if row.is_some() {
             return Err(format!("Collection '{}' has already been added.", collection_name).into());
         }
 
-        conn.execute(
-            "INSERT INTO collections (name, version, language, added_date)
+        self.conn
+            .execute(
+                "INSERT INTO collections (name, version, language, added_date)
              VALUES (?1, ?2, ?3, datetime('now'))",
-            params![&collection_name, &manifest.version, &manifest.language,],
-        )?;
+                params![collection_name.clone(), manifest.version, manifest.language,],
+            )
+            .await?;
 
-        let collection_id: i64 = conn.last_insert_rowid();
+        let collection_id = self.conn.last_insert_rowid();
 
-        let collection_dir = self.collections_dir.join(&collection_name);
+        let collection_dir = self.collections_dir.join(collection_name.clone());
         fs::create_dir_all(&collection_dir)?;
 
         let src_images = temp_path.join("images");
@@ -87,7 +94,7 @@ impl CollectionManager {
             let entry = entry?;
             let path = entry.path();
 
-            let (card_code, variant) = match self.parse_filename(&path) {
+            let (card_code, variant) = match Self::parse_filename(&path) {
                 Some(parsed) => parsed,
                 None => continue,
             };
@@ -95,11 +102,13 @@ impl CollectionManager {
             let file_name = path.file_name().unwrap().to_string_lossy();
             let file_path = format!("{}/{}", collection_name, file_name);
 
-            conn.execute(
-                "INSERT INTO printings (collection_id, card_code, variant, file_path)
+            self.conn
+                .execute(
+                    "INSERT INTO printings (collection_id, card_code, variant, file_path)
                  VALUES (?1, ?2, ?3, ?4)",
-                params![collection_id, &card_code, &variant, &file_path,],
-            )?;
+                    params![collection_id, card_code, variant, file_path,],
+                )
+                .await?;
 
             let dst_path = collection_dir.join(path.file_name().unwrap());
             fs::copy(entry.path(), dst_path)?;
@@ -113,7 +122,7 @@ impl CollectionManager {
         Ok(())
     }
 
-    fn parse_filename(&self, path: &Path) -> Option<(String, String)> {
+    fn parse_filename(path: &Path) -> Option<(String, String)> {
         let stem = path.file_stem()?.to_str()?;
 
         let (code, variant) = if let Some((c, v)) = stem.split_once('_') {
@@ -129,57 +138,75 @@ impl CollectionManager {
         Some((code.to_string(), variant))
     }
 
-    pub fn get_collections(
+    pub async fn get_collections(
         &self,
     ) -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>> {
-        let conn = Connection::open(&self.app_db_path)?;
-        conn.execute("PRAGMA foreign_keys = ON", [])?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name, version, language FROM collections ORDER BY name")
+            .await?;
+        let mut rows = stmt.query(()).await?;
+        let mut results = Vec::new();
 
-        let mut stmt =
-            conn.prepare("SELECT name, version, language FROM collections ORDER BY name")?;
+        while let Some(row) = rows.next().await? {
+            results.push((row.get(0)?, row.get(1)?, row.get(2)?));
+        }
 
-        let collections = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(collections)
+        Ok(results)
     }
 
-    pub fn collection_exists(&self, name: &str) -> Result<bool, Box<dyn std::error::Error>> {
-        let conn = Connection::open(&self.app_db_path)?;
-        let count: u32 = conn.query_row(
-            "SELECT COUNT(*) FROM collections WHERE name = ?1",
-            [name],
-            |row| row.get(0),
-        )?;
+    pub async fn collection_exists(&self, name: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        let row = self
+            .conn
+            .query(
+                "SELECT COUNT(*) FROM collections WHERE name = ?1",
+                params![name],
+            )
+            .await?
+            .next()
+            .await?;
+
+        let count: i64 = match row {
+            Some(r) => r.get(0)?,
+            None => 0,
+        };
         Ok(count > 0)
     }
 
-    pub fn remove_collection(
-        &self,
+    pub async fn remove_collection(
+        &mut self,
         collection_name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut conn = Connection::open(&self.app_db_path)?;
-        conn.execute("PRAGMA foreign_keys = ON", [])?;
-
-        let collection_id: i64 = conn
-            .query_row(
-                "SELECT id FROM collections WHERE name = ?",
-                [collection_name],
-                |row| row.get(0),
+        let row = self
+            .conn
+            .query(
+                "SELECT id FROM collections WHERE name = ?1",
+                params![collection_name],
             )
-            .map_err(|_| format!("Collection '{}' not found", collection_name))?;
+            .await?
+            .next()
+            .await?;
 
-        let tx = conn.transaction()?;
+        let collection_id: i64 = match row {
+            Some(r) => r.get(0)?,
+            None => return Err(format!("Collection '{}' not found", collection_name).into()),
+        };
+
+        let tx = self.conn.transaction().await?;
 
         tx.execute(
-            "DELETE FROM printings WHERE collection_id = ?",
-            [collection_id],
-        )?;
+            "DELETE FROM printings WHERE collection_id = ?1",
+            params![collection_id],
+        )
+        .await?;
 
-        tx.execute("DELETE FROM collections WHERE id = ?", [collection_id])?;
+        tx.execute(
+            "DELETE FROM collections WHERE id = ?1",
+            params![collection_id],
+        )
+        .await?;
 
-        tx.commit()?;
+        tx.commit().await?;
 
         let collection_dir = self.collections_dir.join(collection_name);
         if collection_dir.exists() {
@@ -197,27 +224,28 @@ mod tests {
 
     #[test]
     fn test_parse_filename_variants() {
-        let mgr = CollectionManager {
-            app_db_path: PathBuf::new(),
-            collections_dir: PathBuf::new(),
-        };
-
         assert_eq!(
-            mgr.parse_filename(Path::new("01001.jpg")),
+            CollectionManager::parse_filename(Path::new("01001.jpg")),
             Some(("01001".to_string(), "original".to_string()))
         );
 
         assert_eq!(
-            mgr.parse_filename(Path::new("01001_alt1.jpg")),
+            CollectionManager::parse_filename(Path::new("01001_alt1.jpg")),
             Some(("01001".to_string(), "alt1".to_string()))
         );
 
         assert_eq!(
-            mgr.parse_filename(Path::new("01001_Rear.png")),
+            CollectionManager::parse_filename(Path::new("01001_Rear.png")),
             Some(("01001".to_string(), "rear".to_string()))
         );
 
-        assert_eq!(mgr.parse_filename(Path::new("notacode.jpg")), None);
-        assert_eq!(mgr.parse_filename(Path::new("abc_alt.jpg")), None);
+        assert_eq!(
+            CollectionManager::parse_filename(Path::new("notacode.jpg")),
+            None
+        );
+        assert_eq!(
+            CollectionManager::parse_filename(Path::new("abc_alt.jpg")),
+            None
+        );
     }
 }
