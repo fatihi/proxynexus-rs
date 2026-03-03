@@ -76,12 +76,11 @@ impl CardStore {
             entries.push((name, qty, variant_pref, collection_pref, pack_code_pref));
         }
 
-        let unique_titles: HashSet<String> = entries
-            .iter()
-            .map(|(name, ..)| normalize_title(name))
-            .collect();
-        let titles: Vec<&str> = unique_titles.iter().map(|s| s.as_str()).collect();
+        if entries.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
 
+        let titles: Vec<&str> = entries.iter().map(|(name, ..)| *name).collect();
         let (resolved_cards, not_found) = self.resolve_names_to_cards(&titles).await?;
 
         let mut requests = Vec::new();
@@ -165,14 +164,12 @@ impl CardStore {
         names: &[&str],
     ) -> Result<(HashMap<String, (String, String, String)>, Vec<String>), Box<dyn std::error::Error>>
     {
-        if names.is_empty() {
-            return Ok((HashMap::new(), Vec::new()));
-        }
+        let normalized_name_map: HashMap<&str, String> = names
+            .iter()
+            .map(|&name| (name, normalize_title(name)))
+            .collect();
 
-        let mut title_to_card: HashMap<String, (String, String, String)> = HashMap::new();
-        let mut not_found = Vec::new();
-
-        let placeholders = build_placeholders(names.len());
+        let placeholders = build_placeholders(normalized_name_map.len());
 
         let query = format!(
             "SELECT c.code, c.title, c.pack_code, c.title_normalized
@@ -184,7 +181,9 @@ impl CardStore {
         );
 
         let mut stmt = self.conn.prepare(&query).await?;
-        let mut rows = stmt.query(params_from_iter(names.iter().cloned())).await?;
+        let unique_normalized_name: HashSet<&str> =
+            normalized_name_map.values().map(|s| s.as_str()).collect();
+        let mut rows = stmt.query(params_from_iter(unique_normalized_name)).await?;
 
         let mut resolved_map: HashMap<String, (String, String, String)> = HashMap::new();
         while let Some(row) = rows.next().await? {
@@ -202,8 +201,11 @@ impl CardStore {
             );
         }
 
-        for title in names {
-            if let Some(card_data) = resolved_map.get(*title) {
+        let mut title_to_card: HashMap<String, (String, String, String)> = HashMap::new();
+        let mut not_found = Vec::new();
+
+        for (&title, normalized) in &normalized_name_map {
+            if let Some(card_data) = resolved_map.get(normalized) {
                 title_to_card.insert(title.to_string(), card_data.clone());
             } else {
                 not_found.push(title.to_string());
