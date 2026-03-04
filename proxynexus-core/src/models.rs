@@ -1,6 +1,5 @@
 #[cfg(not(target_arch = "wasm32"))]
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,7 +32,7 @@ pub struct Printing {
     pub card_code: String,
     pub card_title: String,
     pub variant: String,
-    pub file_path: PathBuf,
+    pub image_key: String,
     pub collection: String,
     pub side: String,
     pub pack_code: String,

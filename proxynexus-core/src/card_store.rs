@@ -1,8 +1,6 @@
 use crate::card_source::{CardSource, Cardlist, SetName};
 use crate::models::{CardRequest, Printing};
-use dirs;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use turso::{Connection, params, params_from_iter};
 
 pub fn normalize_title(title: &str) -> String {
@@ -49,7 +47,6 @@ impl CardSource for SetName {
 }
 
 pub struct CardStore {
-    collections_dir: PathBuf,
     conn: Connection,
 }
 
@@ -57,12 +54,7 @@ type CardOverride<'a> = (&'a str, Option<String>, Option<String>, Option<String>
 
 impl CardStore {
     pub fn new(conn: Connection) -> Result<Self, Box<dyn std::error::Error>> {
-        let home = dirs::home_dir().ok_or("Could not find home directory")?;
-        let proxynexus_dir = home.join(".proxynexus");
-        let collections_dir = proxynexus_dir.join("collections");
-
         Ok(Self {
-            collections_dir,
             conn,
         })
     }
@@ -393,12 +385,12 @@ impl CardStore {
         while let Some(row) = rows.next().await? {
             let title: String = row.get(0)?;
             let normalized = normalize_title(&title);
-            let relative_path: String = row.get(3)?;
+            let image_key: String = row.get(3)?;
             let printing = Printing {
                 card_title: title,
                 card_code: row.get(1)?,
                 variant: row.get(2)?,
-                file_path: self.collections_dir.join(relative_path),
+                image_key,
                 collection: row.get(4)?,
                 side: row.get(5)?,
                 pack_code: row.get(6)?,
@@ -504,7 +496,7 @@ mod tests {
             card_title: "Sure Gamble".into(),
             card_code: "01050".into(),
             variant: variant.into(),
-            file_path: PathBuf::from("01050.jpg"),
+            image_key: "01050.jpg".into(),
             collection: coll.into(),
             side: "runner".into(),
             pack_code: pack.into(),

@@ -1,11 +1,12 @@
 use crate::card_source::CardSource;
 use crate::card_store::CardStore;
+use crate::ImageProvider;
 use krilla::Data;
 use krilla::Document;
 use krilla::geom::{Size, Transform};
 use krilla::image::Image;
 use krilla::page::PageSettings;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use turso::Connection;
 
 const POINTS_PER_INCH: f32 = 72.0;
@@ -52,28 +53,29 @@ fn calculate_card_position(card_index: usize, page_size: &PageSize) -> (f32, f32
 }
 
 pub async fn generate_pdf(
+    conn: &Connection,
     card_source: &impl CardSource,
+    image_provider: &impl ImageProvider,
     output_path: &Path,
     page_size: PageSize,
-    conn: &Connection,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let store = CardStore::new(conn.clone())?;
     let card_requests = card_source.to_card_requests(&store).await?;
 
     let available = store.get_available_printings(&card_requests).await?;
     let printings = store.resolve_printings(&card_requests, &available)?;
-    let image_paths: Vec<PathBuf> = printings.iter().map(|p| p.file_path.clone()).collect();
+    let image_keys: Vec<String> = printings.iter().map(|p| p.image_key.clone()).collect();
 
     let mut document = Document::new();
     let (page_width, page_height) = page_size.dimensions();
 
-    for chuck in image_paths.chunks(9) {
+    for chuck in image_keys.chunks(9) {
         let page_settings = PageSettings::from_wh(page_width, page_height).unwrap();
         let mut page = document.start_page_with(page_settings);
         let mut surface = page.surface();
 
-        for (index, image_path) in chuck.iter().enumerate() {
-            let image_data = std::fs::read(image_path)?;
+        for (index, image_key) in chuck.iter().enumerate() {
+            let image_data = image_provider.get_image_bytes(image_key).await?;
             let image = Image::from_jpeg(Data::from(image_data), true)?;
             let size = Size::from_wh(CARD_WIDTH, CARD_HEIGHT).unwrap();
 

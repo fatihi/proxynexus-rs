@@ -3,6 +3,7 @@ use proxynexus_core::card_source::{Cardlist, NrdbUrl, SetName};
 use proxynexus_core::catalog::Catalog;
 use proxynexus_core::collection_builder::build_collection;
 use proxynexus_core::collection_manager::CollectionManager;
+use proxynexus_core::local_image_provider::LocalImageProvider;
 use proxynexus_core::mpc::generate_mpc_zip;
 use proxynexus_core::pdf::{PageSize, generate_pdf};
 use proxynexus_core::query::{generate_query_output, list_available_sets};
@@ -140,8 +141,10 @@ async fn main() {
 
     let home = dirs::home_dir().expect("Could not find home directory");
     let proxynexus_dir = home.join(".proxynexus");
-    if let Err(e) = std::fs::create_dir_all(&proxynexus_dir) {
-        eprintln!("Error creating home directory: {}", e);
+    let collections_dir = proxynexus_dir.join("collections");
+
+    if let Err(e) = std::fs::create_dir_all(&collections_dir) {
+        eprintln!("Error creating collections directory: {}", e);
         std::process::exit(1);
     }
 
@@ -171,6 +174,8 @@ async fn main() {
         std::process::exit(1);
     }
 
+    let image_provider = LocalImageProvider::new(collections_dir.clone());
+
     let mut catalog = Catalog::new(conn.clone());
 
     if let Err(e) = catalog.seed_if_empty().await {
@@ -179,15 +184,17 @@ async fn main() {
 
     let result = match cli.command {
         Commands::Collection { action } => {
-            handle_collection_action(action, cli.verbose, conn.clone()).await
+            handle_collection_action(action, conn.clone(), collections_dir, cli.verbose).await
         }
-        Commands::Generate { output_type } => handle_generate(output_type, conn.clone()).await,
+        Commands::Generate { output_type } => {
+            handle_generate(conn.clone(), &image_provider, output_type).await
+        }
         Commands::Query {
             cardlist,
             set_name,
             nrdb_url,
             list_sets,
-        } => handle_query(cardlist, set_name, nrdb_url, list_sets, conn.clone()).await,
+        } => handle_query(conn.clone(), cardlist, set_name, nrdb_url, list_sets).await,
         Commands::Catalog { action } => handle_catalog_action(action, &mut catalog).await,
     };
 
@@ -199,8 +206,9 @@ async fn main() {
 
 async fn handle_collection_action(
     action: CollectionAction,
-    verbose: bool,
     conn: Connection,
+    collections_dir: PathBuf,
+    verbose: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         CollectionAction::Build {
@@ -221,7 +229,7 @@ async fn handle_collection_action(
             Ok(())
         }
         CollectionAction::Add { path } => {
-            let mut manager = CollectionManager::new(conn)
+            let mut manager = CollectionManager::new(conn, collections_dir)
                 .map_err(|e| format!("Failed to initialize collection manager: {}", e))?;
             manager
                 .add_collection(&path)
@@ -231,7 +239,7 @@ async fn handle_collection_action(
             Ok(())
         }
         CollectionAction::List => {
-            let manager = CollectionManager::new(conn)
+            let manager = CollectionManager::new(conn, collections_dir)
                 .map_err(|e| format!("Failed to initialize collection manager: {}", e))?;
             let collections = manager
                 .get_collections()
@@ -249,7 +257,7 @@ async fn handle_collection_action(
             Ok(())
         }
         CollectionAction::Remove { name } => {
-            let mut manager = CollectionManager::new(conn)
+            let mut manager = CollectionManager::new(conn, collections_dir)
                 .map_err(|e| format!("Failed to initialize collection manager: {}", e))?;
 
             if !manager.collection_exists(&name).await? {
@@ -321,8 +329,9 @@ fn determine_input_source(
 }
 
 async fn handle_generate(
-    output_type: GenerateType,
     conn: Connection,
+    image_provider: &LocalImageProvider,
+    output_type: GenerateType,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match output_type {
         GenerateType::Pdf {
@@ -337,13 +346,13 @@ async fn handle_generate(
 
             match source {
                 InputSource::Cardlist(list) => {
-                    generate_pdf(&Cardlist(list), &output_path, page_size_enum, &conn).await?
+                    generate_pdf(&conn, &Cardlist(list), image_provider, &output_path, page_size_enum).await?
                 }
                 InputSource::SetName(name) => {
-                    generate_pdf(&SetName(name), &output_path, page_size_enum, &conn).await?
+                    generate_pdf(&conn, &SetName(name), image_provider, &output_path, page_size_enum).await?
                 }
                 InputSource::NrdbUrl(url) => {
-                    generate_pdf(&NrdbUrl(url), &output_path, page_size_enum, &conn).await?
+                    generate_pdf(&conn, &NrdbUrl(url), image_provider, &output_path, page_size_enum).await?
                 }
             }
 
@@ -363,13 +372,13 @@ async fn handle_generate(
 
             match source {
                 InputSource::Cardlist(list) => {
-                    generate_mpc_zip(&Cardlist(list), &output_path, &conn).await?
+                    generate_mpc_zip(&conn, &Cardlist(list), image_provider, &output_path).await?
                 }
                 InputSource::SetName(name) => {
-                    generate_mpc_zip(&SetName(name), &output_path, &conn).await?
+                    generate_mpc_zip(&conn, &SetName(name), image_provider, &output_path).await?
                 }
                 InputSource::NrdbUrl(url) => {
-                    generate_mpc_zip(&NrdbUrl(url), &output_path, &conn).await?
+                    generate_mpc_zip(&conn, &NrdbUrl(url), image_provider, &output_path).await?
                 }
             }
 
@@ -381,11 +390,11 @@ async fn handle_generate(
 }
 
 async fn handle_query(
+    conn: Connection,
     cardlist: Option<String>,
     set_name: Option<String>,
     nrdb_url: Option<String>,
     list_sets: bool,
-    conn: Connection,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if list_sets {
         println!("\nAvailable Sets:\n");

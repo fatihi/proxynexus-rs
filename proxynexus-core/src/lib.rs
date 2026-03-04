@@ -14,8 +14,15 @@ pub mod mpc;
 pub mod netrunnerdb;
 pub mod pdf;
 pub mod query;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod local_image_provider;
 
 use turso::Connection;
+
+pub trait ImageProvider: Send + Sync {
+    #![allow(async_fn_in_trait)]
+    async fn get_image_bytes(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+}
 
 pub async fn setup_database(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     conn.execute("PRAGMA foreign_keys = ON", ()).await?;

@@ -1,5 +1,4 @@
 use crate::models::Manifest;
-use dirs;
 use std::fs;
 use std::path::{Path, PathBuf};
 use turso::{Connection, params};
@@ -11,12 +10,7 @@ pub struct CollectionManager {
 }
 
 impl CollectionManager {
-    pub fn new(conn: Connection) -> Result<Self, Box<dyn std::error::Error>> {
-        let home = dirs::home_dir().ok_or("Could not find home directory")?;
-
-        let proxynexus_dir = home.join(".proxynexus");
-        let collections_dir = proxynexus_dir.join("collections");
-
+    pub fn new(conn: Connection, collections_dir: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         fs::create_dir_all(&collections_dir)?;
 
         Ok(Self {

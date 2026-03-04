@@ -2,6 +2,7 @@ use crate::border_generator::generate_bordered_image;
 use crate::card_source::CardSource;
 use crate::card_store::CardStore;
 use crate::models::Printing;
+use crate::ImageProvider;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
@@ -11,9 +12,10 @@ use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
 
 pub async fn generate_mpc_zip(
-    card_source: &impl CardSource,
-    output_path: &Path,
     conn: &Connection,
+    card_source: &impl CardSource,
+    image_provider: &impl ImageProvider,
+    output_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let store = CardStore::new(conn.clone())?;
     let card_requests = card_source.to_card_requests(&store).await?;
@@ -41,17 +43,18 @@ pub async fn generate_mpc_zip(
             format!("{}-images", side_name)
         };
 
-        process_side(&mut zip, &folder_name, side_printings)?;
+        process_side(side_printings, image_provider, &mut zip, &folder_name).await?;
     }
 
     zip.finish()?;
     Ok(())
 }
 
-fn process_side(
+async fn process_side(
+    printings: Vec<Printing>,
+    image_provider: &impl ImageProvider,
     zip: &mut ZipWriter<File>,
     folder_name: &str,
-    printings: Vec<Printing>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut copy_counters: HashMap<(String, String, String), u32> = HashMap::new();
 
@@ -66,7 +69,8 @@ fn process_side(
             .and_modify(|n| *n += 1)
             .or_insert(1);
 
-        let img = image::open(&printing.file_path)?;
+        let image_data = image_provider.get_image_bytes(&printing.image_key).await?;
+        let img = image::load_from_memory(&image_data)?;
 
         #[cfg(not(target_arch = "wasm32"))]
         let start = std::time::Instant::now();
@@ -75,8 +79,8 @@ fn process_side(
 
         #[cfg(not(target_arch = "wasm32"))]
         eprintln!(
-            "generate_bordered_image runtime for {:?}: {:?}",
-            printing.file_path,
+            "generate_bordered_image runtime for {}: {:?}",
+            printing.image_key,
             start.elapsed()
         );
 
