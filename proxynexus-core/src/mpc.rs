@@ -1,12 +1,10 @@
+use crate::ImageProvider;
 use crate::border_generator::generate_bordered_image;
 use crate::card_source::CardSource;
 use crate::card_store::CardStore;
 use crate::models::Printing;
-use crate::ImageProvider;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Write;
-use std::path::Path;
+use std::io::{Cursor, Seek, Write};
 use turso::Connection;
 use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
@@ -15,8 +13,7 @@ pub async fn generate_mpc_zip(
     conn: &Connection,
     card_source: &impl CardSource,
     image_provider: &impl ImageProvider,
-    output_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let store = CardStore::new(conn.clone())?;
     let card_requests = card_source.to_card_requests(&store).await?;
 
@@ -31,8 +28,8 @@ pub async fn generate_mpc_zip(
             .push(printing);
     }
 
-    let zip_file = File::create(output_path)?;
-    let mut zip = ZipWriter::new(zip_file);
+    let mut zip_buffer = Cursor::new(Vec::new());
+    let mut zip = ZipWriter::new(&mut zip_buffer);
 
     let single_side = sides.len() == 1;
 
@@ -47,13 +44,13 @@ pub async fn generate_mpc_zip(
     }
 
     zip.finish()?;
-    Ok(())
+    Ok(zip_buffer.into_inner())
 }
 
-async fn process_side(
+async fn process_side<W: Write + Seek>(
     printings: Vec<Printing>,
     image_provider: &impl ImageProvider,
-    zip: &mut ZipWriter<File>,
+    zip: &mut ZipWriter<W>,
     folder_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut copy_counters: HashMap<(String, String, String), u32> = HashMap::new();

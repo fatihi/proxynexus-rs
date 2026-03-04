@@ -344,18 +344,19 @@ async fn handle_generate(
             let page_size_enum = parse_page_size(&page_size)?;
             let source = determine_input_source(cardlist, set_name, nrdb_url);
 
-            match source {
+            let pdf_bytes = match source {
                 InputSource::Cardlist(list) => {
-                    generate_pdf(&conn, &Cardlist(list), image_provider, &output_path, page_size_enum).await?
+                    generate_pdf(&conn, &Cardlist(list), image_provider, page_size_enum).await?
                 }
                 InputSource::SetName(name) => {
-                    generate_pdf(&conn, &SetName(name), image_provider, &output_path, page_size_enum).await?
+                    generate_pdf(&conn, &SetName(name), image_provider, page_size_enum).await?
                 }
                 InputSource::NrdbUrl(url) => {
-                    generate_pdf(&conn, &NrdbUrl(url), image_provider, &output_path, page_size_enum).await?
+                    generate_pdf(&conn, &NrdbUrl(url), image_provider, page_size_enum).await?
                 }
-            }
+            };
 
+            std::fs::write(&output_path, pdf_bytes)?;
             println!("PDF created successfully: {:?}", output_path);
             Ok(())
         }
@@ -370,18 +371,19 @@ async fn handle_generate(
 
             let start = std::time::Instant::now();
 
-            match source {
+            let mpc_bytes = match source {
                 InputSource::Cardlist(list) => {
-                    generate_mpc_zip(&conn, &Cardlist(list), image_provider, &output_path).await?
+                    generate_mpc_zip(&conn, &Cardlist(list), image_provider).await?
                 }
                 InputSource::SetName(name) => {
-                    generate_mpc_zip(&conn, &SetName(name), image_provider, &output_path).await?
+                    generate_mpc_zip(&conn, &SetName(name), image_provider).await?
                 }
                 InputSource::NrdbUrl(url) => {
-                    generate_mpc_zip(&conn, &NrdbUrl(url), image_provider, &output_path).await?
+                    generate_mpc_zip(&conn, &NrdbUrl(url), image_provider).await?
                 }
-            }
+            };
 
+            std::fs::write(&output_path, mpc_bytes)?;
             eprintln!("runtime: {:?}", start.elapsed());
             println!("MPC ZIP created successfully: {:?}", output_path);
             Ok(())

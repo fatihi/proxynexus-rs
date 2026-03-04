@@ -1,12 +1,11 @@
+use crate::ImageProvider;
 use crate::card_source::CardSource;
 use crate::card_store::CardStore;
-use crate::ImageProvider;
 use krilla::Data;
 use krilla::Document;
 use krilla::geom::{Size, Transform};
 use krilla::image::Image;
 use krilla::page::PageSettings;
-use std::path::Path;
 use turso::Connection;
 
 const POINTS_PER_INCH: f32 = 72.0;
@@ -56,9 +55,8 @@ pub async fn generate_pdf(
     conn: &Connection,
     card_source: &impl CardSource,
     image_provider: &impl ImageProvider,
-    output_path: &Path,
     page_size: PageSize,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let store = CardStore::new(conn.clone())?;
     let card_requests = card_source.to_card_requests(&store).await?;
 
@@ -91,7 +89,5 @@ pub async fn generate_pdf(
     }
 
     let pdf = document.finish().unwrap();
-    std::fs::write(output_path, &pdf)?;
-
-    Ok(())
+    Ok(pdf)
 }
