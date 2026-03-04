@@ -54,9 +54,7 @@ type CardOverride<'a> = (&'a str, Option<String>, Option<String>, Option<String>
 
 impl CardStore {
     pub fn new(conn: Connection) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
-            conn,
-        })
+        Ok(Self { conn })
     }
 
     async fn parse_cardlist_into_card_requests(

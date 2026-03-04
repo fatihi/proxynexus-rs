@@ -10,7 +10,10 @@ pub struct CollectionManager {
 }
 
 impl CollectionManager {
-    pub fn new(conn: Connection, collections_dir: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(
+        conn: Connection,
+        collections_dir: PathBuf,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         fs::create_dir_all(&collections_dir)?;
 
         Ok(Self {

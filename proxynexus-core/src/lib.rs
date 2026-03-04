@@ -9,13 +9,13 @@ pub mod collection_builder;
 pub mod collection_manager;
 #[cfg(not(target_arch = "wasm32"))]
 mod db_schema;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod local_image_provider;
 mod models;
 pub mod mpc;
 pub mod netrunnerdb;
 pub mod pdf;
 pub mod query;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod local_image_provider;
 
 use turso::Connection;
 
