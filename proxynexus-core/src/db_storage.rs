@@ -6,6 +6,48 @@ pub struct IdRow {
     pub id: i64,
 }
 
+#[derive(FromGlueRow)]
+struct MetaDbRow {
+    key: String,
+    value: String,
+}
+
+#[derive(FromGlueRow)]
+struct CollectionDbRow {
+    id: i64,
+    name: String,
+    version: Option<String>,
+    language: Option<String>,
+    added_date: String,
+    last_updated: Option<String>,
+}
+
+#[derive(FromGlueRow)]
+struct PackDbRow {
+    code: String,
+    name: String,
+    date_release: Option<String>,
+}
+
+#[derive(FromGlueRow)]
+struct CardDbRow {
+    code: String,
+    title: String,
+    title_normalized: String,
+    pack_code: String,
+    side: String,
+    quantity: i64,
+}
+
+#[derive(FromGlueRow)]
+struct PrintingDbRow {
+    id: i64,
+    collection_id: i64,
+    card_code: String,
+    variant: String,
+    file_path: String,
+}
+
 #[cfg(target_arch = "wasm32")]
 use gluesql_memory_storage::MemoryStorage;
 
@@ -105,6 +147,102 @@ impl DbStorage {
         )
         .await?;
 
+        Ok(())
+    }
+
+    pub async fn export_sql(
+        &mut self,
+        path: &std::path::Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut sql = String::new();
+        sql.push_str("BEGIN;\n");
+
+        let meta_payloads = self.execute("SELECT * FROM meta").await?;
+        if let Some(payload) = meta_payloads.into_iter().next() {
+            let rows: Vec<MetaDbRow> = payload.rows_as()?;
+            for row in rows {
+                sql.push_str(&format!(
+                    "INSERT INTO meta (key, value) VALUES ({}, {});\n",
+                    quote_sql_string(&row.key),
+                    quote_sql_string(&row.value)
+                ));
+            }
+        }
+
+        let pack_payloads = self.execute("SELECT * FROM packs").await?;
+        if let Some(payload) = pack_payloads.into_iter().next() {
+            let rows: Vec<PackDbRow> = payload.rows_as()?;
+            for row in rows {
+                let date = row
+                    .date_release
+                    .map_or("NULL".to_string(), |d| quote_sql_string(&d));
+                sql.push_str(&format!(
+                    "INSERT INTO packs (code, name, date_release) VALUES ({}, {}, {});\n",
+                    quote_sql_string(&row.code),
+                    quote_sql_string(&row.name),
+                    date
+                ));
+            }
+        }
+
+        let card_payloads = self.execute("SELECT * FROM cards").await?;
+        if let Some(payload) = card_payloads.into_iter().next() {
+            let rows: Vec<CardDbRow> = payload.rows_as()?;
+            for row in rows {
+                sql.push_str(&format!(
+                    "INSERT INTO cards (code, title, title_normalized, pack_code, side, quantity) VALUES ({}, {}, {}, {}, {}, {});\n",
+                    quote_sql_string(&row.code),
+                    quote_sql_string(&row.title),
+                    quote_sql_string(&row.title_normalized),
+                    quote_sql_string(&row.pack_code),
+                    quote_sql_string(&row.side),
+                    row.quantity
+                ));
+            }
+        }
+
+        let coll_payloads = self.execute("SELECT * FROM collections").await?;
+        if let Some(payload) = coll_payloads.into_iter().next() {
+            let rows: Vec<CollectionDbRow> = payload.rows_as()?;
+            for row in rows {
+                let version = row
+                    .version
+                    .map_or("NULL".to_string(), |v| quote_sql_string(&v));
+                let lang = row
+                    .language
+                    .map_or("NULL".to_string(), |l| quote_sql_string(&l));
+                let last_up = row
+                    .last_updated
+                    .map_or("NULL".to_string(), |d| quote_sql_string(&d));
+                sql.push_str(&format!(
+                    "INSERT INTO collections (id, name, version, language, added_date, last_updated) VALUES ({}, {}, {}, {}, {}, {});\n",
+                    row.id,
+                    quote_sql_string(&row.name),
+                    version,
+                    lang,
+                    quote_sql_string(&row.added_date),
+                    last_up
+                ));
+            }
+        }
+
+        let print_payloads = self.execute("SELECT * FROM printings").await?;
+        if let Some(payload) = print_payloads.into_iter().next() {
+            let rows: Vec<PrintingDbRow> = payload.rows_as()?;
+            for row in rows {
+                sql.push_str(&format!(
+                    "INSERT INTO printings (id, collection_id, card_code, variant, file_path) VALUES ({}, {}, {}, {}, {});\n",
+                    row.id,
+                    row.collection_id,
+                    quote_sql_string(&row.card_code),
+                    quote_sql_string(&row.variant),
+                    quote_sql_string(&row.file_path)
+                ));
+            }
+        }
+
+        sql.push_str("COMMIT;\n");
+        std::fs::write(path, sql)?;
         Ok(())
     }
 }

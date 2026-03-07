@@ -29,3 +29,4 @@ venv/*
 **.csv
 **.pnx
 **.zip
+**.sql

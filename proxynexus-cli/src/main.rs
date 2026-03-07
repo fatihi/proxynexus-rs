@@ -53,6 +53,10 @@ enum Commands {
         #[arg(long)]
         list_sets: bool,
     },
+    Export {
+        #[arg(short, long, default_value = "init.sql")]
+        output: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -185,6 +189,16 @@ async fn main() {
             list_sets,
         } => handle_query(&mut db, cardlist, set_name, nrdb_url, list_sets).await,
         Commands::Catalog { action } => handle_catalog_action(action, &mut catalog).await,
+        Commands::Export { output } => {
+            println!("Exporting database to {:?}...", output);
+            match db.export_sql(&output).await {
+                Ok(_) => {
+                    println!("Database exported successfully!");
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            }
+        }
     };
 
     if let Err(e) = result {
