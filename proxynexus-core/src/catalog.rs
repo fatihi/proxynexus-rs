@@ -1,8 +1,21 @@
 use crate::card_store::normalize_title;
+use crate::db_storage::{DbStorage, quote_sql_string};
 use crate::models::{Card, Pack};
+use gluesql::FromGlueRow;
+use gluesql::core::row_conversion::SelectExt;
+use gluesql::prelude::*;
 use serde::Deserialize;
 use std::path::PathBuf;
-use turso::{Connection, params};
+
+#[derive(FromGlueRow)]
+struct MetaRow {
+    value: String,
+}
+
+#[derive(FromGlueRow)]
+struct CountRow {
+    count: i64,
+}
 
 const CARDS_JSON: &str = include_str!("../data/netrunnerdb_cards.json");
 const PACKS_JSON: &str = include_str!("../data/netrunnerdb_packs.json");
@@ -18,13 +31,13 @@ struct PacksResponse {
     data: Vec<Pack>,
 }
 
-pub struct Catalog {
-    conn: Connection,
+pub struct Catalog<'a> {
+    db: &'a mut DbStorage,
 }
 
-impl Catalog {
-    pub fn new(conn: Connection) -> Self {
-        Self { conn }
+impl<'a> Catalog<'a> {
+    pub fn new(db: &'a mut DbStorage) -> Self {
+        Self { db }
     }
 
     pub async fn seed_if_empty(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -76,62 +89,66 @@ impl Catalog {
         let cards_response: CardsResponse = serde_json::from_str(cards_json)?;
         let packs_response: PacksResponse = serde_json::from_str(packs_json)?;
 
-        self.conn.execute("PRAGMA foreign_keys = OFF", ()).await?;
+        self.db.execute("BEGIN").await?;
 
-        let tx = self.conn.transaction().await?;
-
-        tx.execute("DELETE FROM cards", ()).await?;
-        tx.execute("DELETE FROM packs", ()).await?;
+        self.db.execute("DELETE FROM cards").await?;
+        self.db.execute("DELETE FROM packs").await?;
 
         for pack in packs_response.data {
-            tx.execute(
-                "INSERT INTO packs (code, name, date_release) VALUES (?1, ?2, ?3)",
-                params![pack.code, pack.name, pack.date_release],
-            )
-            .await?;
+            let date = pack
+                .date_release
+                .map_or("NULL".to_string(), |d| quote_sql_string(&d));
+            let q = format!(
+                "INSERT INTO packs (code, name, date_release) VALUES ({}, {}, {})",
+                quote_sql_string(&pack.code),
+                quote_sql_string(&pack.name),
+                date
+            );
+            self.db.execute(&q).await?;
         }
 
         for card in cards_response.data {
-            tx.execute(
-                "INSERT INTO cards (code, title, title_normalized, pack_code, side, quantity)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    card.code,
-                    card.title.clone(),
-                    normalize_title(&card.title),
-                    card.pack_code,
-                    card.side_code,
-                    card.quantity,
-                ],
-            )
-            .await?;
+            let q = format!(
+                "INSERT INTO cards (code, title, title_normalized, pack_code, side, quantity) VALUES ({}, {}, {}, {}, {}, {})",
+                quote_sql_string(&card.code),
+                quote_sql_string(&card.title),
+                quote_sql_string(&normalize_title(&card.title)),
+                quote_sql_string(&card.pack_code),
+                quote_sql_string(&card.side_code),
+                card.quantity
+            );
+            self.db.execute(&q).await?;
         }
 
-        tx.execute(
-            "INSERT OR REPLACE INTO meta (key, value) VALUES ('catalog_version', ?1)",
-            params![cards_response.last_updated],
-        )
-        .await?;
+        self.db
+            .execute("DELETE FROM meta WHERE key = 'catalog_version'")
+            .await?;
+        let q = format!(
+            "INSERT INTO meta (key, value) VALUES ('catalog_version', {})",
+            quote_sql_string(&cards_response.last_updated)
+        );
+        self.db.execute(&q).await?;
 
-        tx.commit().await?;
-
-        self.conn.execute("PRAGMA foreign_keys = ON", ()).await?;
+        self.db.execute("COMMIT").await?;
 
         Ok(())
     }
 
-    pub async fn get_info(&self) -> Result<String, Box<dyn std::error::Error>> {
+    pub async fn get_info(&mut self) -> Result<String, Box<dyn std::error::Error>> {
         let count = self.get_card_count().await?;
 
-        let row = self
-            .conn
-            .query("SELECT value FROM meta WHERE key = 'catalog_version'", ())
-            .await?
-            .next()
+        let payloads = self
+            .db
+            .execute("SELECT value FROM meta WHERE key = 'catalog_version'")
             .await?;
 
-        let last_updated = match row {
-            Some(r) => r.get(0)?,
+        let last_updated = match payloads.into_iter().next() {
+            Some(p) => p
+                .rows_as::<MetaRow>()?
+                .into_iter()
+                .next()
+                .map(|row| row.value)
+                .unwrap_or_else(|| "Unknown (bundled snapshot)".to_string()),
             None => "Unknown (bundled snapshot)".to_string(),
         };
 
@@ -145,17 +162,22 @@ impl Catalog {
         Ok(info)
     }
 
-    async fn get_card_count(&self) -> Result<i64, Box<dyn std::error::Error>> {
-        let row = self
-            .conn
-            .query("SELECT COUNT(*) FROM cards", ())
-            .await?
-            .next()
+    async fn get_card_count(&mut self) -> Result<i64, Box<dyn std::error::Error>> {
+        let payloads = self
+            .db
+            .execute("SELECT COUNT(*) AS count FROM cards")
             .await?;
 
-        Ok(match row {
-            Some(r) => r.get(0)?,
+        let count = match payloads.into_iter().next() {
+            Some(p) => p
+                .rows_as::<CountRow>()?
+                .into_iter()
+                .next()
+                .map(|row| row.count)
+                .unwrap_or(0),
             None => 0,
-        })
+        };
+
+        Ok(count)
     }
 }

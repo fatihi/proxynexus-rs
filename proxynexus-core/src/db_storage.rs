@@ -1,4 +1,10 @@
+use gluesql::FromGlueRow;
 use gluesql::prelude::*;
+
+#[derive(FromGlueRow)]
+pub struct IdRow {
+    pub id: i64,
+}
 
 #[cfg(target_arch = "wasm32")]
 use gluesql_memory_storage::MemoryStorage;
@@ -23,6 +29,25 @@ impl DbStorage {
             #[cfg(not(target_arch = "wasm32"))]
             DbStorage::Sled(glue) => glue.execute(sql).await,
         }
+    }
+
+    pub async fn get_next_id(
+        &mut self,
+        table_name: &str,
+    ) -> Result<i64, Box<dyn std::error::Error>> {
+        let query = format!("SELECT id FROM {} ORDER BY id DESC LIMIT 1", table_name);
+        let payloads = self.execute(&query).await?;
+
+        let next_id = match payloads.into_iter().next() {
+            Some(p) => p
+                .rows_as::<IdRow>()?
+                .into_iter()
+                .next()
+                .map(|row| row.id + 1)
+                .unwrap_or(1),
+            None => 1,
+        };
+        Ok(next_id)
     }
 
     pub async fn initialize_schema(&mut self) -> Result<(), Box<dyn std::error::Error>> {

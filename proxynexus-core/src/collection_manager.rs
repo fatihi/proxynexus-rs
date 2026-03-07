@@ -1,24 +1,39 @@
+use crate::db_storage::{DbStorage, IdRow, quote_sql_string};
 use crate::models::Manifest;
+use gluesql::FromGlueRow;
+use gluesql::core::row_conversion::SelectExt;
+use gluesql::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
-use turso::{Connection, params};
 use zip::ZipArchive;
 
-pub struct CollectionManager {
-    collections_dir: PathBuf,
-    conn: Connection,
+#[derive(FromGlueRow)]
+struct CollectionRow {
+    name: String,
+    version: Option<String>,
+    language: Option<String>,
 }
 
-impl CollectionManager {
+#[derive(FromGlueRow)]
+struct CountRow {
+    count: i64,
+}
+
+pub struct CollectionManager<'a> {
+    collections_dir: PathBuf,
+    db: &'a mut DbStorage,
+}
+
+impl<'a> CollectionManager<'a> {
     pub fn new(
-        conn: Connection,
+        db: &'a mut DbStorage,
         collections_dir: PathBuf,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         fs::create_dir_all(&collections_dir)?;
 
         Ok(Self {
             collections_dir,
-            conn,
+            db,
         })
     }
 
@@ -52,29 +67,25 @@ impl CollectionManager {
             collection_name, manifest.version, manifest.language
         );
 
-        let row = self
-            .conn
-            .query(
-                "SELECT id FROM collections WHERE name = ?1",
-                params![collection_name.clone()],
-            )
-            .await?
-            .next()
-            .await?;
-
-        if row.is_some() {
+        if self.collection_exists(&collection_name).await? {
             return Err(format!("Collection '{}' has already been added.", collection_name).into());
         }
 
-        self.conn
-            .execute(
-                "INSERT INTO collections (name, version, language, added_date)
-             VALUES (?1, ?2, ?3, datetime('now'))",
-                params![collection_name.clone(), manifest.version, manifest.language,],
-            )
-            .await?;
+        let next_coll_id = self.db.get_next_id("collections").await?;
 
-        let collection_id = self.conn.last_insert_rowid();
+        let added_date = chrono::Utc::now().to_rfc3339();
+
+        let insert_coll_q = format!(
+            "INSERT INTO collections (id, name, version, language, added_date) VALUES ({}, {}, {}, {}, '{}')",
+            next_coll_id,
+            quote_sql_string(&collection_name),
+            quote_sql_string(&manifest.version),
+            quote_sql_string(&manifest.language),
+            added_date
+        );
+        self.db.execute(&insert_coll_q).await?;
+
+        let collection_id = next_coll_id;
 
         let collection_dir = self.collections_dir.join(collection_name.clone());
         fs::create_dir_all(&collection_dir)?;
@@ -82,7 +93,9 @@ impl CollectionManager {
         let src_images = temp_path.join("images");
 
         let mut printings_added = 0;
-        let tx = self.conn.transaction().await?;
+        self.db.execute("BEGIN").await?;
+
+        let mut next_print_id = self.db.get_next_id("printings").await?;
 
         for entry in fs::read_dir(&src_images)? {
             let entry = entry?;
@@ -96,12 +109,17 @@ impl CollectionManager {
             let file_name = path.file_name().unwrap().to_string_lossy();
             let file_path = format!("{}/{}", collection_name, file_name);
 
-            tx.execute(
-                "INSERT INTO printings (collection_id, card_code, variant, file_path)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![collection_id, card_code, variant, file_path,],
-            )
-            .await?;
+            let insert_print_q = format!(
+                "INSERT INTO printings (id, collection_id, card_code, variant, file_path) VALUES ({}, {}, {}, {}, {})",
+                next_print_id,
+                collection_id,
+                quote_sql_string(&card_code),
+                quote_sql_string(&variant),
+                quote_sql_string(&file_path)
+            );
+
+            self.db.execute(&insert_print_q).await?;
+            next_print_id += 1;
 
             let dst_path = collection_dir.join(path.file_name().unwrap());
             fs::copy(entry.path(), dst_path)?;
@@ -109,7 +127,7 @@ impl CollectionManager {
             printings_added += 1;
         }
 
-        tx.commit().await?;
+        self.db.execute("COMMIT").await?;
 
         println!("Added {} printings", printings_added);
         println!("Collection '{}' added successfully!", collection_name);
@@ -134,35 +152,51 @@ impl CollectionManager {
     }
 
     pub async fn get_collections(
-        &self,
+        &mut self,
     ) -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT name, version, language FROM collections ORDER BY name")
+        let payloads = self
+            .db
+            .execute("SELECT name, version, language FROM collections ORDER BY name")
             .await?;
-        let mut rows = stmt.query(()).await?;
-        let mut results = Vec::new();
 
-        while let Some(row) = rows.next().await? {
-            results.push((row.get(0)?, row.get(1)?, row.get(2)?));
-        }
+        let rows = match payloads.into_iter().next() {
+            Some(p) => p.rows_as::<CollectionRow>()?,
+            None => return Ok(Vec::new()),
+        };
+
+        let results = rows
+            .into_iter()
+            .map(|row| {
+                (
+                    row.name,
+                    row.version.unwrap_or_default(),
+                    row.language.unwrap_or_default(),
+                )
+            })
+            .collect();
 
         Ok(results)
     }
 
-    pub async fn collection_exists(&self, name: &str) -> Result<bool, Box<dyn std::error::Error>> {
-        let row = self
-            .conn
-            .query(
-                "SELECT COUNT(*) FROM collections WHERE name = ?1",
-                params![name],
-            )
-            .await?
-            .next()
+    pub async fn collection_exists(
+        &mut self,
+        name: &str,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let payloads = self
+            .db
+            .execute(&format!(
+                "SELECT COUNT(*) AS count FROM collections WHERE name = {}",
+                quote_sql_string(name)
+            ))
             .await?;
 
-        let count: i64 = match row {
-            Some(r) => r.get(0)?,
+        let count = match payloads.into_iter().next() {
+            Some(p) => p
+                .rows_as::<CountRow>()?
+                .into_iter()
+                .next()
+                .map(|row| row.count)
+                .unwrap_or(0),
             None => 0,
         };
         Ok(count > 0)
@@ -172,36 +206,36 @@ impl CollectionManager {
         &mut self,
         collection_name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let row = self
-            .conn
-            .query(
-                "SELECT id FROM collections WHERE name = ?1",
-                params![collection_name],
-            )
-            .await?
-            .next()
+        let payloads = self
+            .db
+            .execute(&format!(
+                "SELECT id FROM collections WHERE name = {}",
+                quote_sql_string(collection_name)
+            ))
             .await?;
 
-        let collection_id: i64 = match row {
-            Some(r) => r.get(0)?,
+        let collection_id = match payloads.into_iter().next() {
+            Some(p) => p
+                .rows_as::<IdRow>()?
+                .into_iter()
+                .next()
+                .map(|row| row.id)
+                .ok_or_else(|| format!("Collection '{}' not found", collection_name))?,
             None => return Err(format!("Collection '{}' not found", collection_name).into()),
         };
 
-        let tx = self.conn.transaction().await?;
+        self.db.execute("BEGIN").await?;
 
-        tx.execute(
-            "DELETE FROM printings WHERE collection_id = ?1",
-            params![collection_id],
-        )
-        .await?;
+        let del_print_q = format!(
+            "DELETE FROM printings WHERE collection_id = {}",
+            collection_id
+        );
+        self.db.execute(&del_print_q).await?;
 
-        tx.execute(
-            "DELETE FROM collections WHERE id = ?1",
-            params![collection_id],
-        )
-        .await?;
+        let del_coll_q = format!("DELETE FROM collections WHERE id = {}", collection_id);
+        self.db.execute(&del_coll_q).await?;
 
-        tx.commit().await?;
+        self.db.execute("COMMIT").await?;
 
         let collection_dir = self.collections_dir.join(collection_name);
         if collection_dir.exists() {
