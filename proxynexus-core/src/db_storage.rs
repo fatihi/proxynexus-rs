@@ -21,6 +21,18 @@ pub enum DbStorage {
 }
 
 impl DbStorage {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new_sled(path: impl AsRef<std::path::Path>) -> Result<Self, Box<dyn std::error::Error>> {
+        let storage = SledStorage::new(path.as_ref().to_str().ok_or("Invalid path")?)?;
+        Ok(Self::Sled(Glue::new(storage)))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn new_memory() -> Self {
+        let storage = MemoryStorage::default();
+        Self::Memory(Glue::new(storage))
+    }
+
     pub async fn execute(&mut self, sql: &str) -> Result<Vec<Payload>, Error> {
         match self {
             #[cfg(target_arch = "wasm32")]
@@ -87,8 +99,7 @@ impl DbStorage {
                 collection_id INTEGER NOT NULL,
                 card_code TEXT NOT NULL,
                 variant TEXT NOT NULL,
-                file_path TEXT NOT NULL,
-                UNIQUE(collection_id, card_code, variant)
+                file_path TEXT NOT NULL
             );
             ",
         )

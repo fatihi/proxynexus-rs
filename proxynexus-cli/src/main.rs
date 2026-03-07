@@ -7,8 +7,8 @@ use proxynexus_core::local_image_provider::LocalImageProvider;
 use proxynexus_core::mpc::generate_mpc_zip;
 use proxynexus_core::pdf::{PageSize, generate_pdf};
 use proxynexus_core::query::{generate_query_output, list_available_sets};
+use proxynexus_core::db_storage::DbStorage;
 use std::path::PathBuf;
-use turso::Connection;
 
 #[derive(Parser)]
 #[command(name = "proxynexus-cli")]
@@ -148,35 +148,24 @@ async fn main() {
         std::process::exit(1);
     }
 
-    let db_path = proxynexus_dir
-        .join("proxynexus.db")
-        .to_string_lossy()
-        .to_string();
+    let db_path = proxynexus_dir.join("proxynexus_data");
 
-    let db = match turso::Builder::new_local(&db_path).build().await {
+    let mut db = match DbStorage::new_sled(&db_path) {
         Ok(db) => db,
         Err(e) => {
-            eprintln!("Error building database: {}", e);
+            eprintln!("Error initializing database: {}", e);
             std::process::exit(1);
         }
     };
 
-    let conn = match db.connect() {
-        Ok(conn) => conn,
-        Err(e) => {
-            eprintln!("Error connecting to database: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    if let Err(e) = proxynexus_core::setup_database(&conn).await {
-        eprintln!("Error setting up database schema/pragmas: {}", e);
+    if let Err(e) = db.initialize_schema().await {
+        eprintln!("Error setting up database schema: {}", e);
         std::process::exit(1);
     }
 
     let image_provider = LocalImageProvider::new(collections_dir.clone());
 
-    let mut catalog = Catalog::new(conn.clone());
+    let mut catalog = Catalog::new(&mut db);
 
     if let Err(e) = catalog.seed_if_empty().await {
         eprintln!("Warning: Could not seed catalog: {}", e);
@@ -184,17 +173,17 @@ async fn main() {
 
     let result = match cli.command {
         Commands::Collection { action } => {
-            handle_collection_action(action, conn.clone(), collections_dir, cli.verbose).await
+            handle_collection_action(action, &mut db, collections_dir, cli.verbose).await
         }
         Commands::Generate { output_type } => {
-            handle_generate(conn.clone(), &image_provider, output_type).await
+            handle_generate(&mut db, &image_provider, output_type).await
         }
         Commands::Query {
             cardlist,
             set_name,
             nrdb_url,
             list_sets,
-        } => handle_query(conn.clone(), cardlist, set_name, nrdb_url, list_sets).await,
+        } => handle_query(&mut db, cardlist, set_name, nrdb_url, list_sets).await,
         Commands::Catalog { action } => handle_catalog_action(action, &mut catalog).await,
     };
 
@@ -206,7 +195,7 @@ async fn main() {
 
 async fn handle_collection_action(
     action: CollectionAction,
-    conn: Connection,
+    db: &mut DbStorage,
     collections_dir: PathBuf,
     verbose: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -229,7 +218,7 @@ async fn handle_collection_action(
             Ok(())
         }
         CollectionAction::Add { path } => {
-            let mut manager = CollectionManager::new(conn, collections_dir)
+            let mut manager = CollectionManager::new(db, collections_dir)
                 .map_err(|e| format!("Failed to initialize collection manager: {}", e))?;
             manager
                 .add_collection(&path)
@@ -239,7 +228,7 @@ async fn handle_collection_action(
             Ok(())
         }
         CollectionAction::List => {
-            let manager = CollectionManager::new(conn, collections_dir)
+            let mut manager = CollectionManager::new(db, collections_dir)
                 .map_err(|e| format!("Failed to initialize collection manager: {}", e))?;
             let collections = manager
                 .get_collections()
@@ -257,7 +246,7 @@ async fn handle_collection_action(
             Ok(())
         }
         CollectionAction::Remove { name } => {
-            let mut manager = CollectionManager::new(conn, collections_dir)
+            let mut manager = CollectionManager::new(db, collections_dir)
                 .map_err(|e| format!("Failed to initialize collection manager: {}", e))?;
 
             if !manager.collection_exists(&name).await? {
@@ -286,7 +275,7 @@ async fn handle_collection_action(
 
 async fn handle_catalog_action(
     action: CatalogAction,
-    catalog: &mut Catalog,
+    catalog: &mut Catalog<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         CatalogAction::Update => {
@@ -329,7 +318,7 @@ fn determine_input_source(
 }
 
 async fn handle_generate(
-    conn: Connection,
+    db: &mut DbStorage,
     image_provider: &LocalImageProvider,
     output_type: GenerateType,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -346,13 +335,13 @@ async fn handle_generate(
 
             let pdf_bytes = match source {
                 InputSource::Cardlist(list) => {
-                    generate_pdf(&conn, &Cardlist(list), image_provider, page_size_enum).await?
+                    generate_pdf(db, &Cardlist(list), image_provider, page_size_enum).await?
                 }
                 InputSource::SetName(name) => {
-                    generate_pdf(&conn, &SetName(name), image_provider, page_size_enum).await?
+                    generate_pdf(db, &SetName(name), image_provider, page_size_enum).await?
                 }
                 InputSource::NrdbUrl(url) => {
-                    generate_pdf(&conn, &NrdbUrl(url), image_provider, page_size_enum).await?
+                    generate_pdf(db, &NrdbUrl(url), image_provider, page_size_enum).await?
                 }
             };
 
@@ -373,13 +362,13 @@ async fn handle_generate(
 
             let mpc_bytes = match source {
                 InputSource::Cardlist(list) => {
-                    generate_mpc_zip(&conn, &Cardlist(list), image_provider).await?
+                    generate_mpc_zip(db, &Cardlist(list), image_provider).await?
                 }
                 InputSource::SetName(name) => {
-                    generate_mpc_zip(&conn, &SetName(name), image_provider).await?
+                    generate_mpc_zip(db, &SetName(name), image_provider).await?
                 }
                 InputSource::NrdbUrl(url) => {
-                    generate_mpc_zip(&conn, &NrdbUrl(url), image_provider).await?
+                    generate_mpc_zip(db, &NrdbUrl(url), image_provider).await?
                 }
             };
 
@@ -392,7 +381,7 @@ async fn handle_generate(
 }
 
 async fn handle_query(
-    conn: Connection,
+    db: &mut DbStorage,
     cardlist: Option<String>,
     set_name: Option<String>,
     nrdb_url: Option<String>,
@@ -400,16 +389,16 @@ async fn handle_query(
 ) -> Result<(), Box<dyn std::error::Error>> {
     if list_sets {
         println!("\nAvailable Sets:\n");
-        println!("{}", list_available_sets(&conn).await?);
+        println!("{}", list_available_sets(db).await?);
         return Ok(());
     }
 
     let source = determine_input_source(cardlist, set_name, nrdb_url);
 
     let output = match source {
-        InputSource::Cardlist(list) => generate_query_output(&Cardlist(list), &conn).await,
-        InputSource::SetName(name) => generate_query_output(&SetName(name), &conn).await,
-        InputSource::NrdbUrl(url) => generate_query_output(&NrdbUrl(url), &conn).await,
+        InputSource::Cardlist(list) => generate_query_output(&Cardlist(list), db).await,
+        InputSource::SetName(name) => generate_query_output(&SetName(name), db).await,
+        InputSource::NrdbUrl(url) => generate_query_output(&NrdbUrl(url), db).await,
     };
 
     println!("\nQuery Results:\n");
