@@ -106,7 +106,7 @@ fn App() -> Element {
 
 #[component]
 fn Workspace() -> Element {
-    let mut sidebar_width = use_signal(|| 300.0);
+    let mut sidebar_width = use_signal(|| 400.0);
     let mut drag_state = use_signal(|| None::<(f64, f64)>);
 
     rsx! {
@@ -117,7 +117,7 @@ fn Workspace() -> Element {
 
                 if let Some((start_x, start_width)) = *drag_state.read() {
                     let delta = current_x - start_x;
-                    sidebar_width.set((start_width + delta).clamp(150.0, 800.0));
+                    sidebar_width.set((start_width - delta).clamp(150.0, 800.0));
                 }
             },
             onmouseup: move |_| {
@@ -128,8 +128,7 @@ fn Workspace() -> Element {
             },
 
             div {
-                style: "width: {sidebar_width()}px;",
-                class: "bg-gray-50 flex-shrink-0",
+                class: "flex-1 flex flex-col bg-gray-50 min-w-0",
             }
 
             div {
@@ -141,9 +140,12 @@ fn Workspace() -> Element {
             }
 
             div {
-                class: "flex-1 flex flex-col bg-white min-w-0",
+                style: "width: {sidebar_width()}px;",
+                class: "bg-white flex-shrink-0 flex flex-col p-4",
                 textarea {
-                    class: "flex-1 w-full p-4 shadow-inner outline-none resize-none",
+                    class: "w-full p-3 border border-gray-300 rounded-md shadow-sm outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-none",
+                    rows: 10,
+                    placeholder: "Enter your card list here...",
                 }
             }
         }
