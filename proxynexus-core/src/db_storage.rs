@@ -159,84 +159,69 @@ impl DbStorage {
         let meta_payloads = self.execute("SELECT * FROM meta").await?;
         if let Some(payload) = meta_payloads.into_iter().next() {
             let rows: Vec<MetaDbRow> = payload.rows_as()?;
-            for row in rows {
-                sql.push_str(&format!(
-                    "INSERT INTO meta (key, value) VALUES ({}, {});\n",
-                    quote_sql_string(&row.key),
-                    quote_sql_string(&row.value)
-                ));
+            for chunk in rows.chunks(500) {
+                sql.push_str("INSERT INTO meta (key, value) VALUES ");
+                let values: Vec<String> = chunk.iter().map(|row| {
+                    format!("({}, {})", quote_sql_string(&row.key), quote_sql_string(&row.value))
+                }).collect();
+                sql.push_str(&values.join(", "));
+                sql.push_str(";\n");
             }
         }
 
         let pack_payloads = self.execute("SELECT * FROM packs").await?;
         if let Some(payload) = pack_payloads.into_iter().next() {
             let rows: Vec<PackDbRow> = payload.rows_as()?;
-            for row in rows {
-                let date = row
-                    .date_release
-                    .map_or("NULL".to_string(), |d| quote_sql_string(&d));
-                sql.push_str(&format!(
-                    "INSERT INTO packs (code, name, date_release) VALUES ({}, {}, {});\n",
-                    quote_sql_string(&row.code),
-                    quote_sql_string(&row.name),
-                    date
-                ));
+            for chunk in rows.chunks(500) {
+                sql.push_str("INSERT INTO packs (code, name, date_release) VALUES ");
+                let values: Vec<String> = chunk.iter().map(|row| {
+                    let date = row.date_release.as_ref().map_or("NULL".to_string(), |d| quote_sql_string(d));
+                    format!("({}, {}, {})", quote_sql_string(&row.code), quote_sql_string(&row.name), date)
+                }).collect();
+                sql.push_str(&values.join(", "));
+                sql.push_str(";\n");
             }
         }
 
         let card_payloads = self.execute("SELECT * FROM cards").await?;
         if let Some(payload) = card_payloads.into_iter().next() {
             let rows: Vec<CardDbRow> = payload.rows_as()?;
-            for row in rows {
-                sql.push_str(&format!(
-                    "INSERT INTO cards (code, title, title_normalized, pack_code, side, quantity) VALUES ({}, {}, {}, {}, {}, {});\n",
-                    quote_sql_string(&row.code),
-                    quote_sql_string(&row.title),
-                    quote_sql_string(&row.title_normalized),
-                    quote_sql_string(&row.pack_code),
-                    quote_sql_string(&row.side),
-                    row.quantity
-                ));
+            for chunk in rows.chunks(500) {
+                sql.push_str("INSERT INTO cards (code, title, title_normalized, pack_code, side, quantity) VALUES ");
+                let values: Vec<String> = chunk.iter().map(|row| {
+                    format!("({}, {}, {}, {}, {}, {})", quote_sql_string(&row.code), quote_sql_string(&row.title), quote_sql_string(&row.title_normalized), quote_sql_string(&row.pack_code), quote_sql_string(&row.side), row.quantity)
+                }).collect();
+                sql.push_str(&values.join(", "));
+                sql.push_str(";\n");
             }
         }
 
         let coll_payloads = self.execute("SELECT * FROM collections").await?;
         if let Some(payload) = coll_payloads.into_iter().next() {
             let rows: Vec<CollectionDbRow> = payload.rows_as()?;
-            for row in rows {
-                let version = row
-                    .version
-                    .map_or("NULL".to_string(), |v| quote_sql_string(&v));
-                let lang = row
-                    .language
-                    .map_or("NULL".to_string(), |l| quote_sql_string(&l));
-                let last_up = row
-                    .last_updated
-                    .map_or("NULL".to_string(), |d| quote_sql_string(&d));
-                sql.push_str(&format!(
-                    "INSERT INTO collections (id, name, version, language, added_date, last_updated) VALUES ({}, {}, {}, {}, {}, {});\n",
-                    row.id,
-                    quote_sql_string(&row.name),
-                    version,
-                    lang,
-                    quote_sql_string(&row.added_date),
-                    last_up
-                ));
+            for chunk in rows.chunks(500) {
+                sql.push_str("INSERT INTO collections (id, name, version, language, added_date, last_updated) VALUES ");
+                let values: Vec<String> = chunk.iter().map(|row| {
+                    let version = row.version.as_ref().map_or("NULL".to_string(), |v| quote_sql_string(v));
+                    let lang = row.language.as_ref().map_or("NULL".to_string(), |l| quote_sql_string(l));
+                    let last_up = row.last_updated.as_ref().map_or("NULL".to_string(), |d| quote_sql_string(d));
+                    format!("({}, {}, {}, {}, {}, {})", row.id, quote_sql_string(&row.name), version, lang, quote_sql_string(&row.added_date), last_up)
+                }).collect();
+                sql.push_str(&values.join(", "));
+                sql.push_str(";\n");
             }
         }
 
         let print_payloads = self.execute("SELECT * FROM printings").await?;
         if let Some(payload) = print_payloads.into_iter().next() {
             let rows: Vec<PrintingDbRow> = payload.rows_as()?;
-            for row in rows {
-                sql.push_str(&format!(
-                    "INSERT INTO printings (id, collection_id, card_code, variant, file_path) VALUES ({}, {}, {}, {}, {});\n",
-                    row.id,
-                    row.collection_id,
-                    quote_sql_string(&row.card_code),
-                    quote_sql_string(&row.variant),
-                    quote_sql_string(&row.file_path)
-                ));
+            for chunk in rows.chunks(500) {
+                sql.push_str("INSERT INTO printings (id, collection_id, card_code, variant, file_path) VALUES ");
+                let values: Vec<String> = chunk.iter().map(|row| {
+                    format!("({}, {}, {}, {}, {})", row.id, row.collection_id, quote_sql_string(&row.card_code), quote_sql_string(&row.variant), quote_sql_string(&row.file_path))
+                }).collect();
+                sql.push_str(&values.join(", "));
+                sql.push_str(";\n");
             }
         }
 
