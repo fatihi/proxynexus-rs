@@ -27,11 +27,65 @@ fn main() {
 
     #[cfg(feature = "desktop")]
     {
+        use dioxus::desktop::wry::http::{Response, status::StatusCode};
+        use std::borrow::Cow;
+
         LaunchBuilder::desktop()
             .with_cfg(
                 dioxus::desktop::Config::new()
                     .with_menu(None)
-                    .with_window(dioxus::desktop::WindowBuilder::new().with_title("Proxy Nexus")),
+                    .with_window(dioxus::desktop::WindowBuilder::new().with_title("Proxy Nexus"))
+                    .with_asynchronous_custom_protocol(
+                        "proxynexus",
+                        |_webview_id, request, responder| {
+                            tokio::spawn(async move {
+                                let uri = request.uri().to_string();
+                                let path_str =
+                                    uri.strip_prefix("proxynexus://collections/").unwrap_or("");
+
+                                if path_str.contains("..") || path_str.starts_with('/') {
+                                    error!("Blocked suspicious local image request: {}", path_str);
+                                    responder.respond(
+                                        Response::builder()
+                                            .status(StatusCode::FORBIDDEN)
+                                            .body(Cow::Borrowed("403 - Forbidden".as_bytes()))
+                                            .unwrap(),
+                                    );
+                                    return;
+                                }
+
+                                let home = dirs::home_dir().expect("Could not find home directory");
+                                let full_path =
+                                    home.join(".proxynexus").join("collections").join(path_str);
+
+                                match tokio::fs::read(&full_path).await {
+                                    Ok(bytes) => {
+                                        responder.respond(
+                                            Response::builder()
+                                                .status(StatusCode::OK)
+                                                .header("Content-Type", "image/jpeg")
+                                                .header("Access-Control-Allow-Origin", "*")
+                                                .body(Cow::Owned(bytes))
+                                                .unwrap(),
+                                        );
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            "Failed to load local image {}: {}",
+                                            full_path.display(),
+                                            e
+                                        );
+                                        responder.respond(
+                                            Response::builder()
+                                                .status(StatusCode::NOT_FOUND)
+                                                .body(Cow::Borrowed("404 - Not Found".as_bytes()))
+                                                .unwrap(),
+                                        );
+                                    }
+                                }
+                            });
+                        },
+                    ),
             )
             .launch(App);
     }

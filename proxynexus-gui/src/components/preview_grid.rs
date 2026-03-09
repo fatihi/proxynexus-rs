@@ -1,18 +1,15 @@
 use dioxus::prelude::*;
 use proxynexus_core::models::Printing;
 
-#[cfg(target_arch = "wasm32")]
-const R2_BASE_URL: &str = "https://collections.proxynexus.net";
-
 fn build_image_url(image_key: &str) -> String {
     #[cfg(feature = "desktop")]
     {
-        format!("proxynexus://images/{}", image_key)
+        format!("proxynexus://collections/{}", image_key)
     }
 
     #[cfg(feature = "web")]
     {
-        format!("{}/{}", R2_BASE_URL, image_key)
+        format!("https://collections.proxynexus.net/{}", image_key)
     }
 }
 
