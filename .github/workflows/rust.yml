@@ -15,7 +15,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Install System Dependencies
       run: |
         sudo apt-get update
@@ -24,28 +24,36 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
-        targets: "wasm32-unknown-unknown"
+        targets: wasm32-unknown-unknown
 
     - name: Rust Cache
       uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
 
     - name: Clippy
       run: cargo clippy -- -D warnings
 
     - name: Check WASM compatibility
       run: cargo check --target wasm32-unknown-unknown -p proxynexus-core
-      
+
     - name: Run tests
       run: cargo test --verbose
 
-    - name: Install cargo-binstall
-      uses: cargo-bins/cargo-binstall@main
-
     - name: Install Dioxus CLI
-      run: cargo binstall -y dioxus-cli
+      run: cargo install --locked --force dioxus-cli
+
+    - name: Cache Dioxus target directory
+      uses: actions/cache@v4
+      with:
+        path: |
+          target/dx
+        key: dx-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          dx-${{ runner.os }}-
 
     - name: Build Web App
-      run: dx build --release -p proxynexus-gui --platform web
+      run: ~/.cargo/bin/dx build --release -p proxynexus-gui --platform web
 
     - name: Deploy to Cloudflare Pages
       if: github.ref == 'refs/heads/master' && github.event_name == 'push'
