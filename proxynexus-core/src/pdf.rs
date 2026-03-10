@@ -69,14 +69,22 @@ pub async fn generate_pdf(
     let mut document = Document::new();
     let (page_width, page_height) = page_size.dimensions();
 
+    let mut image_cache: std::collections::HashMap<String, Vec<u8>> =
+        std::collections::HashMap::new();
+
     for chunk in image_keys.chunks(9) {
         let page_settings = PageSettings::from_wh(page_width, page_height).unwrap();
         let mut page = document.start_page_with(page_settings);
         let mut surface = page.surface();
 
         for (index, image_key) in chunk.iter().enumerate() {
-            let image_data = image_provider.get_image_bytes(image_key).await?;
-            let image = Image::from_jpeg(Data::from(image_data), true)?;
+            if !image_cache.contains_key(image_key) {
+                let image_data = image_provider.get_image_bytes(image_key).await?;
+                image_cache.insert(image_key.clone(), image_data);
+            }
+
+            let image_data = image_cache.get(image_key).unwrap();
+            let image = Image::from_jpeg(Data::from(image_data.clone()), true)?;
             let size = Size::from_wh(CARD_WIDTH, CARD_HEIGHT).unwrap();
 
             let (pos_x, pos_y) = calculate_card_position(index, &page_size);

@@ -4,7 +4,7 @@ use proxynexus_core::catalog::Catalog;
 use proxynexus_core::collection_builder::build_collection;
 use proxynexus_core::collection_manager::CollectionManager;
 use proxynexus_core::db_storage::DbStorage;
-use proxynexus_core::local_image_provider::LocalImageProvider;
+use proxynexus_core::image_provider::LocalImageProvider;
 use proxynexus_core::mpc::generate_mpc_zip;
 use proxynexus_core::pdf::{PageSize, generate_pdf};
 use proxynexus_core::query::{generate_query_output, list_available_sets};
