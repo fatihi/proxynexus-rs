@@ -32,6 +32,7 @@ pub async fn generate_mpc_zip(
     let mut zip = ZipWriter::new(&mut zip_buffer);
 
     let single_side = sides.len() == 1;
+    let mut image_cache: HashMap<String, Vec<u8>> = HashMap::new();
 
     for (side_name, side_printings) in sides {
         let folder_name = if single_side {
@@ -40,7 +41,14 @@ pub async fn generate_mpc_zip(
             format!("{}-images", side_name)
         };
 
-        process_side(side_printings, image_provider, &mut zip, &folder_name).await?;
+        process_side(
+            side_printings,
+            image_provider,
+            &mut zip,
+            &folder_name,
+            &mut image_cache,
+        )
+        .await?;
     }
 
     zip.finish()?;
@@ -52,6 +60,7 @@ async fn process_side<W: Write + Seek>(
     image_provider: &impl ImageProvider,
     zip: &mut ZipWriter<W>,
     folder_name: &str,
+    image_cache: &mut HashMap<String, Vec<u8>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut copy_counters: HashMap<(String, String, String), u32> = HashMap::new();
 
@@ -66,7 +75,14 @@ async fn process_side<W: Write + Seek>(
             .and_modify(|n| *n += 1)
             .or_insert(1);
 
-        let image_data = image_provider.get_image_bytes(&printing.image_key).await?;
+        let image_data = if let Some(cached) = image_cache.get(&printing.image_key) {
+            cached.clone()
+        } else {
+            let data = image_provider.get_image_bytes(&printing.image_key).await?;
+            image_cache.insert(printing.image_key.clone(), data.clone());
+            data
+        };
+
         let img = image::load_from_memory(&image_data)?;
 
         #[cfg(not(target_arch = "wasm32"))]
