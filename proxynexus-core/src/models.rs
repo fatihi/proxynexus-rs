@@ -28,11 +28,18 @@ pub struct Pack {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct PrintingPart {
+    pub name: String,
+    pub image_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Printing {
     pub card_code: String,
     pub card_title: String,
     pub variant: String,
     pub image_key: String,
+    pub parts: Vec<PrintingPart>,
     pub collection: String,
     pub side: String,
     pub pack_code: String,

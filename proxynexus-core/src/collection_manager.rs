@@ -102,7 +102,7 @@ impl<'a> CollectionManager<'a> {
                 let entry = entry?;
                 let path = entry.path();
 
-                let (card_code, variant) = match Self::parse_filename(&path) {
+                let (card_code, variant, part) = match Self::parse_filename(&path) {
                     Some(parsed) => parsed,
                     None => continue,
                 };
@@ -111,12 +111,13 @@ impl<'a> CollectionManager<'a> {
                 let file_path = format!("{}/{}", collection_name, file_name);
 
                 let insert_print_q = format!(
-                    "INSERT INTO printings (id, collection_id, card_code, variant, file_path) VALUES ({}, {}, {}, {}, {})",
+                    "INSERT INTO printings (id, collection_id, card_code, variant, file_path, part) VALUES ({}, {}, {}, {}, {}, {})",
                     next_print_id,
                     collection_id,
                     quote_sql_string(&card_code),
                     quote_sql_string(&variant),
-                    quote_sql_string(&file_path)
+                    quote_sql_string(&file_path),
+                    quote_sql_string(&part)
                 );
 
                 self.db.execute(&insert_print_q).await?;
@@ -148,20 +149,26 @@ impl<'a> CollectionManager<'a> {
         Ok(())
     }
 
-    fn parse_filename(path: &Path) -> Option<(String, String)> {
+    fn parse_filename(path: &Path) -> Option<(String, String, String)> {
         let stem = path.file_stem()?.to_str()?;
 
-        let (code, variant) = if let Some((c, v)) = stem.split_once('_') {
+        let (base, part) = if let Some((b, a)) = stem.split_once('-') {
+            (b, a.to_lowercase())
+        } else {
+            (stem, "front".to_string())
+        };
+
+        let (code, variant) = if let Some((c, v)) = base.split_once('_') {
             (c, v.to_lowercase())
         } else {
-            (stem, "original".to_string())
+            (base, "original".to_string())
         };
 
         if !code.chars().all(|c| c.is_ascii_digit()) {
             return None;
         }
 
-        Some((code.to_string(), variant))
+        Some((code.to_string(), variant, part))
     }
 
     pub async fn get_collections(
@@ -281,17 +288,22 @@ mod tests {
     fn test_parse_filename_variants() {
         assert_eq!(
             CollectionManager::parse_filename(Path::new("01001.jpg")),
-            Some(("01001".to_string(), "original".to_string()))
+            Some(("01001".to_string(), "original".to_string(), "front".to_string()))
         );
 
         assert_eq!(
             CollectionManager::parse_filename(Path::new("01001_alt1.jpg")),
-            Some(("01001".to_string(), "alt1".to_string()))
+            Some(("01001".to_string(), "alt1".to_string(), "front".to_string()))
         );
 
         assert_eq!(
-            CollectionManager::parse_filename(Path::new("01001_Rear.png")),
-            Some(("01001".to_string(), "rear".to_string()))
+            CollectionManager::parse_filename(Path::new("01001-rear.png")),
+            Some(("01001".to_string(), "original".to_string(), "rear".to_string()))
+        );
+
+        assert_eq!(
+            CollectionManager::parse_filename(Path::new("01001_alt1-rear.png")),
+            Some(("01001".to_string(), "alt1".to_string(), "rear".to_string()))
         );
 
         assert_eq!(

@@ -65,7 +65,14 @@ pub async fn generate_pdf(
 
     let available = store.get_available_printings(&card_requests).await?;
     let printings = store.resolve_printings(&card_requests, &available)?;
-    let image_keys: Vec<String> = printings.iter().map(|p| p.image_key.clone()).collect();
+    
+    let mut image_keys: Vec<String> = Vec::new();
+    for p in &printings {
+        image_keys.push(p.image_key.clone());
+        for part in &p.parts {
+            image_keys.push(part.image_key.clone());
+        }
+    }
 
     let mut document = Document::new();
     let (page_width, page_height) = page_size.dimensions();

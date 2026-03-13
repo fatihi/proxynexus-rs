@@ -46,6 +46,7 @@ struct PrintingDbRow {
     card_code: String,
     variant: String,
     file_path: String,
+    part: String,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -141,7 +142,8 @@ impl DbStorage {
                 collection_id INTEGER NOT NULL,
                 card_code TEXT NOT NULL,
                 variant TEXT NOT NULL,
-                file_path TEXT NOT NULL
+                file_path TEXT NOT NULL,
+                part TEXT NOT NULL
             );
             ",
         )
@@ -265,17 +267,18 @@ impl DbStorage {
         if let Some(payload) = print_payloads.into_iter().next() {
             let rows: Vec<PrintingDbRow> = payload.rows_as()?;
             for chunk in rows.chunks(500) {
-                sql.push_str("INSERT INTO printings (id, collection_id, card_code, variant, file_path) VALUES ");
+                sql.push_str("INSERT INTO printings (id, collection_id, card_code, variant, file_path, part) VALUES ");
                 let values: Vec<String> = chunk
                     .iter()
                     .map(|row| {
                         format!(
-                            "({}, {}, {}, {}, {})",
+                            "({}, {}, {}, {}, {}, {})",
                             row.id,
                             row.collection_id,
                             quote_sql_string(&row.card_code),
                             quote_sql_string(&row.variant),
-                            quote_sql_string(&row.file_path)
+                            quote_sql_string(&row.file_path),
+                            quote_sql_string(&row.part)
                         )
                     })
                     .collect();

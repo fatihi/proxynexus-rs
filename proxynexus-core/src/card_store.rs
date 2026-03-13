@@ -1,6 +1,7 @@
+use std::string::String;
 use crate::card_source::{CardSource, Cardlist, SetName};
 use crate::db_storage::{DbStorage, build_in_clause, quote_sql_string};
-use crate::models::{CardRequest, Printing};
+use crate::models::{CardRequest, Printing, PrintingPart};
 use gluesql::FromGlueRow;
 use gluesql::core::row_conversion::SelectExt;
 use gluesql::prelude::*;
@@ -42,6 +43,7 @@ struct AvailablePrintingRow {
     code: String,
     variant: String,
     file_path: String,
+    part: String,
     name: String,
     side: String,
     pack_code: String,
@@ -431,7 +433,7 @@ impl<'a> CardStore<'a> {
         let in_clause = build_in_clause(&unique_titles);
 
         let query = format!(
-            "SELECT c.title, c.code, p.variant, p.file_path, col.name, c.side, c.pack_code
+            "SELECT c.title, c.code, p.variant, p.file_path, p.part, col.name, c.side, c.pack_code
              FROM printings p
              JOIN cards c ON p.card_code = c.code
              JOIN collections col ON p.collection_id = col.id
@@ -451,23 +453,57 @@ impl<'a> CardStore<'a> {
         if let Some(payload) = payloads.into_iter().next() {
             let printing_rows = payload.rows_as::<AvailablePrintingRow>()?;
 
+            let mut groups: HashMap<(String, String, String, String), Vec<AvailablePrintingRow>> = HashMap::new();
+            
             for row in printing_rows {
                 let normalized = normalize_title(&row.title);
+                let key = (normalized, row.code.clone(), row.variant.clone(), row.name.clone());
+                groups.entry(key).or_default().push(row);
+            }
+
+            for ((normalized, code, variant, collection), rows) in groups {
+                let mut image_key = String::new();
+                let mut parts = Vec::new();
+
+                let first_row = &rows[0];
+                let title = first_row.title.clone();
+                let side = first_row.side.clone();
+                let pack_code = first_row.pack_code.clone();
+
+                for row in rows {
+                    if row.part == "front" {
+                        image_key = row.file_path;
+                    } else {
+                        parts.push(PrintingPart {
+                            name: row.part,
+                            image_key: row.file_path,
+                        });
+                    }
+                }
 
                 let printing = Printing {
-                    card_title: row.title,
-                    card_code: row.code,
-                    variant: row.variant,
-                    image_key: row.file_path,
-                    collection: row.name,
-                    side: row.side,
-                    pack_code: row.pack_code,
+                    card_title: title,
+                    card_code: code,
+                    variant,
+                    image_key,
+                    parts,
+                    collection,
+                    side,
+                    pack_code,
                 };
 
                 resolved_printings
                     .entry(normalized)
                     .or_default()
                     .push(printing);
+            }
+
+            for printings in resolved_printings.values_mut() {
+                printings.sort_by(|a, b| {
+                    let a_is_original = a.variant == "original";
+                    let b_is_original = b.variant == "original";
+                    b_is_original.cmp(&a_is_original)
+                });
             }
         }
 
@@ -567,6 +603,7 @@ mod tests {
             card_code: "01050".into(),
             variant: variant.into(),
             image_key: "01050.jpg".into(),
+            parts: Vec::new(),
             collection: coll.into(),
             side: "runner".into(),
             pack_code: pack.into(),

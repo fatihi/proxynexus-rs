@@ -76,40 +76,53 @@ async fn process_side<W: Write + Seek>(
             .and_modify(|n| *n += 1)
             .or_insert(1);
 
-        let image_data = if let Some(cached) = image_cache.get(&printing.image_key) {
-            cached.clone()
-        } else {
-            let data = image_provider.get_image_bytes(&printing.image_key).await?;
-            image_cache.insert(printing.image_key.clone(), data.clone());
-            data
-        };
+        let image_keys_to_process = std::iter::once(("front".to_string(), printing.image_key.clone()))
+            .chain(printing.parts.into_iter().map(|a| (a.name, a.image_key)));
 
-        let image_format = image::guess_format(&image_data).unwrap_or(ImageFormat::Jpeg);
-        let img = image::load_from_memory(&image_data)?;
+        for (part_name, current_image_key) in image_keys_to_process {
+            let image_data = if let Some(cached) = image_cache.get(&current_image_key) {
+                cached.clone()
+            } else {
+                let data = image_provider.get_image_bytes(&current_image_key).await?;
+                image_cache.insert(current_image_key.clone(), data.clone());
+                data
+            };
 
-        #[cfg(not(target_arch = "wasm32"))]
-        let start = std::time::Instant::now();
+            let image_format = image::guess_format(&image_data).unwrap_or(ImageFormat::Jpeg);
+            let img = image::load_from_memory(&image_data)?;
 
-        let bordered_bytes = generate_bordered_image(&img, *copy_num, image_format)?;
+            #[cfg(not(target_arch = "wasm32"))]
+            let start = std::time::Instant::now();
 
-        #[cfg(not(target_arch = "wasm32"))]
-        eprintln!(
-            "generate_bordered_image runtime for {}: {:?}",
-            printing.image_key,
-            start.elapsed()
-        );
+            let bordered_bytes = generate_bordered_image(&img, *copy_num, image_format)?;
 
-        let ext = if image_format == ImageFormat::Png { "png" } else { "jpg" };
-        let filename = format!(
-            "{}/{}-{}-{}-{}.{}",
-            folder_name, printing.card_code, printing.variant, printing.collection, copy_num, ext
-        );
+            #[cfg(not(target_arch = "wasm32"))]
+            eprintln!(
+                "generate_bordered_image runtime for {}: {:?}",
+                current_image_key,
+                start.elapsed()
+            );
 
-        let options =
-            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            let ext = if image_format == ImageFormat::Png { "png" } else { "jpg" };
+            
+            let filename = if part_name == "front" {
+                format!(
+                    "{}/{}-{}-{}-{}.{}",
+                    folder_name, printing.card_code, printing.variant, printing.collection, copy_num, ext
+                )
+            } else {
+                format!(
+                    "{}/{}-{}-{}-{}-{}.{}",
+                    folder_name, printing.card_code, printing.variant, printing.collection, copy_num, part_name, ext
+                )
+            };
 
-        zip.start_file(&filename, options)?;
-        zip.write_all(&bordered_bytes)?;
+            let options =
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+
+            zip.start_file(&filename, options)?;
+            zip.write_all(&bordered_bytes)?;
+        }
     }
 
     Ok(())

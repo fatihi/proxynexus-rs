@@ -25,12 +25,23 @@ pub fn PreviewGrid(props: PreviewGridProps) -> Element {
             class: "flex flex-wrap gap-4",
             for (index, printing) in props.printings.iter().enumerate() {
                 div {
-                    key: "{index}",
+                    key: "{index}-front",
                     class: "w-[200px] overflow-hidden shadow-lg aspect-[2.5/3.5] bg-gray-400",
                     img {
                         src: "{build_image_url(&printing.image_key)}",
                         class: "w-full h-full",
                         alt: "{printing.card_title}",
+                    }
+                }
+                for (part_index, part) in printing.parts.iter().enumerate() {
+                    div {
+                        key: "{index}-{part_index}",
+                        class: "w-[200px] overflow-hidden shadow-lg aspect-[2.5/3.5] bg-gray-400 opacity-90 border-2 border-dashed border-gray-400",
+                        img {
+                            src: "{build_image_url(&part.image_key)}",
+                            class: "w-full h-full",
+                            alt: "{printing.card_title} ({part.name})",
+                        }
                     }
                 }
             }
