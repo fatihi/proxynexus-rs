@@ -56,6 +56,9 @@ jobs:
         restore-keys: |
           dx-${{ runner.os }}-
 
+    - name: Clean Previous Build Assets
+      run: rm -rf target/dx/proxynexus-gui/release/web
+
     - name: Build Web App
       run: dx build --release -p proxynexus-gui --platform web
 
