@@ -125,7 +125,8 @@ fn get_db_storage() -> DbStorage {
 async fn hydrate_wasm_db(db: &mut DbStorage) -> Result<(), String> {
     use gloo_net::http::Request;
 
-    let response = Request::get("/init.sql")
+    let url = format!("/init.sql?t={}", js_sys::Date::now());
+    let response = Request::get(&url)
         .send()
         .await
         .map_err(|e| format!("Failed to fetch init.sql: {}", e))?;
