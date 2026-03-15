@@ -1,12 +1,17 @@
+use crate::analytics;
 use dioxus::prelude::*;
 use proxynexus_core::db_storage::DbStorage;
 use proxynexus_core::pdf::PageSize;
 use tracing::{error, info};
+use web_time::Instant;
 
 pub async fn run_pdf_export(mut db_signal: Signal<DbStorage>, text: String, page_size: PageSize) {
-    info!("Starting PDF generation with page size: {:?}", page_size);
+    analytics::start_capture();
+    let start_time = Instant::now();
+    let page_size_str = format!("{:?}", page_size);
+    info!("Starting PDF generation with page size: {}", page_size_str);
 
-    let source = proxynexus_core::card_source::Cardlist(text);
+    let source = proxynexus_core::card_source::Cardlist(text.clone());
     let mut db = db_signal.write();
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -19,7 +24,12 @@ pub async fn run_pdf_export(mut db_signal: Signal<DbStorage>, text: String, page
     #[cfg(target_arch = "wasm32")]
     let provider = proxynexus_core::image_provider::RemoteImageProvider;
 
-    match proxynexus_core::pdf::generate_pdf(&mut db, &source, &provider, page_size).await {
+    let result = proxynexus_core::pdf::generate_pdf(&mut db, &source, &provider, page_size).await;
+
+    let mut success = false;
+    let mut error_message = None;
+
+    match result {
         Ok(pdf_bytes) => {
             info!(
                 "Successfully generated PDF. Size: {} bytes",
@@ -27,13 +37,28 @@ pub async fn run_pdf_export(mut db_signal: Signal<DbStorage>, text: String, page
             );
 
             if let Err(e) = save_pdf(&pdf_bytes).await {
-                error!("Failed to save PDF: {:?}", e);
+                let msg = format!("Failed to save PDF: {:?}", e);
+                error!("{}", msg);
+                error_message = Some(msg);
+            } else {
+                success = true;
             }
         }
         Err(e) => {
-            error!("Failed to generate PDF: {}", e);
+            let msg = format!("Failed to generate PDF: {}", e);
+            error!("{}", msg);
+            error_message = Some(msg);
         }
     }
+
+    analytics::send_report(analytics::GenerationReport {
+        format: "pdf".to_string(),
+        page_size: page_size_str,
+        runtime_ms: start_time.elapsed().as_millis(),
+        success,
+        cardlist: text,
+        error_message,
+    });
 }
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -4507,17 +4507,24 @@ name = "proxynexus-gui"
 version = "0.1.0"
 dependencies = [
  "dioxus",
- "dioxus-logger",
  "dirs",
  "gloo-net",
  "gloo-timers",
  "js-sys",
  "proxynexus-core",
+ "reqwest 0.13.2",
  "rfd",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
+ "tracing-subscriber",
+ "tracing-wasm",
+ "uuid",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
+ "web-time",
 ]
 
 [[package]]

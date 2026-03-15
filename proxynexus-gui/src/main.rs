@@ -2,8 +2,12 @@ use dioxus::prelude::*;
 use proxynexus_core::db_storage::DbStorage;
 use proxynexus_core::query::resolve_query_printings;
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::error;
+use tracing_subscriber::{
+    EnvFilter, filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt,
+};
 
+pub mod analytics;
 mod components;
 mod export;
 use components::card_input::CardInput;
@@ -26,8 +30,39 @@ async fn sleep(ms: u64) {
     }
 }
 
+fn init_tracing() {
+    let registry = tracing_subscriber::registry();
+
+    #[cfg(target_arch = "wasm32")]
+    let filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .parse_lossy("proxynexus=debug,proxynexus_gui=debug,proxynexus_core=debug");
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
+
+    let registry = registry.with(filter);
+
+    #[cfg(target_arch = "wasm32")]
+    let registry = registry.with(tracing_wasm::WASMLayer::new(
+        tracing_wasm::WASMLayerConfig::default(),
+    ));
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let registry = registry.with(tracing_subscriber::fmt::layer());
+
+    if analytics::is_enabled() {
+        let _ = registry.with(analytics::LogCaptureLayer).try_init();
+    } else {
+        info!("Analytics disabled: POSTHOG_API_KEY not set");
+        let _ = registry.try_init();
+    }
+}
+
 fn main() {
-    dioxus_logger::init(tracing::Level::INFO).expect("failed to init logger");
+    init_tracing();
 
     #[cfg(feature = "desktop")]
     {
