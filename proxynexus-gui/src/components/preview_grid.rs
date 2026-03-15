@@ -29,6 +29,7 @@ pub fn PreviewGrid(props: PreviewGridProps) -> Element {
                     class: "w-[200px] overflow-hidden shadow-lg aspect-[2.5/3.5] bg-gray-400",
                     img {
                         src: "{build_image_url(&printing.image_key)}",
+                        crossorigin: "anonymous",
                         class: "w-full h-full",
                         alt: "{printing.card_title}",
                     }
@@ -39,6 +40,7 @@ pub fn PreviewGrid(props: PreviewGridProps) -> Element {
                         class: "w-[200px] overflow-hidden shadow-lg aspect-[2.5/3.5] bg-gray-400 opacity-90 border-2 border-dashed border-gray-400",
                         img {
                             src: "{build_image_url(&part.image_key)}",
+                            crossorigin: "anonymous",
                             class: "w-full h-full",
                             alt: "{printing.card_title} ({part.name})",
                         }
