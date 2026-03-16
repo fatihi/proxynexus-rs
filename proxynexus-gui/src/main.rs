@@ -10,9 +10,9 @@ use tracing_subscriber::{
 pub mod analytics;
 mod components;
 mod export;
-use components::card_input::CardInput;
 use components::export_controls::ExportControls;
 use components::preview_grid::PreviewGrid;
+use components::source_selector::{ActiveSource, SourceSelector};
 use export::run_pdf_export;
 use proxynexus_core::pdf::PageSize;
 
@@ -228,12 +228,12 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
     let mut sidebar_width = use_signal(|| 400.0);
     let mut drag_state = use_signal(|| None::<(f64, f64)>);
 
-    let cardlist_text = use_signal(String::new);
-    let mut debounced_text = use_signal(String::new);
+    let active_source = use_signal(ActiveSource::default);
+    let mut debounced_source = use_signal(ActiveSource::default);
     let mut debounce_task = use_signal(|| None::<dioxus::dioxus_core::Task>);
 
     use_effect(move || {
-        let current_text = cardlist_text();
+        let current_source = active_source();
 
         if let Some(task) = debounce_task.take() {
             task.cancel();
@@ -241,20 +241,35 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
 
         debounce_task.set(Some(spawn(async move {
             sleep(300).await;
-            debounced_text.set(current_text);
+            debounced_source.set(current_source);
         })));
     });
 
     let query_result = use_resource(move || async move {
-        let text = debounced_text();
-        if text.trim().is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let source = proxynexus_core::card_source::Cardlist(text);
+        let source = debounced_source();
         let mut db = db_signal.write();
 
-        resolve_query_printings(&source, &mut db).await
+        match source {
+            ActiveSource::Cardlist(text) => {
+                if text.trim().is_empty() {
+                    return Ok(Vec::new());
+                }
+                resolve_query_printings(&proxynexus_core::card_source::Cardlist(text), &mut db)
+                    .await
+            }
+            ActiveSource::SetName(name) => {
+                if name.trim().is_empty() {
+                    return Ok(Vec::new());
+                }
+                resolve_query_printings(&proxynexus_core::card_source::SetName(name), &mut db).await
+            }
+            ActiveSource::NrdbUrl(url) => {
+                if url.trim().is_empty() {
+                    return Ok(Vec::new());
+                }
+                resolve_query_printings(&proxynexus_core::card_source::NrdbUrl(url), &mut db).await
+            }
+        }
     });
 
     rsx! {
@@ -305,11 +320,11 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
             div {
                 style: "width: {sidebar_width()}px;",
                 class: "bg-white flex-shrink-0 flex flex-col h-full border-l border-gray-200",
-                CardInput { text_state: cardlist_text }
+                SourceSelector { source_state: active_source, db_signal }
                 ExportControls {
                     on_generate: move |page_size: PageSize| {
-                        let text = cardlist_text();
-                        spawn(run_pdf_export(db_signal, text, page_size));
+                        let source = active_source();
+                        spawn(run_pdf_export(db_signal, source, page_size));
                     }
                 }
             }

@@ -1,17 +1,22 @@
 use crate::analytics;
+use crate::components::source_selector::ActiveSource;
 use dioxus::prelude::*;
+use proxynexus_core::card_source::{Cardlist, NrdbUrl, SetName};
 use proxynexus_core::db_storage::DbStorage;
-use proxynexus_core::pdf::PageSize;
+use proxynexus_core::pdf::{PageSize, generate_pdf};
 use tracing::{error, info};
 use web_time::Instant;
 
-pub async fn run_pdf_export(mut db_signal: Signal<DbStorage>, text: String, page_size: PageSize) {
+pub async fn run_pdf_export(
+    mut db_signal: Signal<DbStorage>,
+    active_source: ActiveSource,
+    page_size: PageSize,
+) {
     analytics::start_capture();
     let start_time = Instant::now();
     let page_size_str = format!("{:?}", page_size);
     info!("Starting PDF generation with page size: {}", page_size_str);
 
-    let source = proxynexus_core::card_source::Cardlist(text.clone());
     let mut db = db_signal.write();
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -24,7 +29,23 @@ pub async fn run_pdf_export(mut db_signal: Signal<DbStorage>, text: String, page
     #[cfg(target_arch = "wasm32")]
     let provider = proxynexus_core::image_provider::RemoteImageProvider;
 
-    let result = proxynexus_core::pdf::generate_pdf(&mut db, &source, &provider, page_size).await;
+    let (result, source_text, source_type) = match active_source {
+        ActiveSource::Cardlist(text) => (
+            generate_pdf(&mut db, &Cardlist(text.clone()), &provider, page_size).await,
+            text,
+            "Cardlist",
+        ),
+        ActiveSource::SetName(name) => (
+            generate_pdf(&mut db, &SetName(name.clone()), &provider, page_size).await,
+            name,
+            "SetName",
+        ),
+        ActiveSource::NrdbUrl(url) => (
+            generate_pdf(&mut db, &NrdbUrl(url.clone()), &provider, page_size).await,
+            url,
+            "NrdbUrl",
+        ),
+    };
 
     let mut success = false;
     let mut error_message = None;
@@ -56,7 +77,8 @@ pub async fn run_pdf_export(mut db_signal: Signal<DbStorage>, text: String, page
         page_size: page_size_str,
         runtime_ms: start_time.elapsed().as_millis(),
         success,
-        cardlist: text,
+        source_type,
+        source_text,
         error_message,
     });
 }

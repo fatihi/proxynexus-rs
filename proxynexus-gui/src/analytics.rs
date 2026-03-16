@@ -16,7 +16,8 @@ pub struct GenerationReport {
     pub page_size: String,
     pub runtime_ms: u128,
     pub success: bool,
-    pub cardlist: String,
+    pub source_type: &'static str,
+    pub source_text: String,
     pub error_message: Option<String>,
 }
 
@@ -86,7 +87,8 @@ pub fn send_report(report: GenerationReport) {
             "page_size": report.page_size,
             "runtime_ms": report.runtime_ms,
             "success": report.success,
-            "cardlist": report.cardlist.lines().collect::<Vec<_>>(),
+            "source_type": report.source_type,
+            "source_text": report.source_text.lines().collect::<Vec<_>>(),
             "error_message": report.error_message,
             "logs": logs,
         }
