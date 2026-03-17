@@ -58,6 +58,10 @@ pub fn normalize_title(title: &str) -> String {
         .collect()
 }
 
+pub fn clean_card_name(name: &str) -> &str {
+    name.trim_end_matches(|c: char| !c.is_alphanumeric() && !"!.*)\"'”’“‘".contains(c))
+}
+
 impl CardSource for Cardlist {
     async fn to_card_requests(
         &self,
@@ -115,6 +119,7 @@ impl<'a> CardStore<'a> {
             let (name, variant_pref, collection_pref, pack_code_pref) =
                 Self::parse_overrides(rest)?;
 
+            let name = clean_card_name(name);
             entries.push((name, qty, variant_pref, collection_pref, pack_code_pref));
         }
 
@@ -670,6 +675,24 @@ mod tests {
                 .variant,
             "original"
         );
+    }
+
+    #[test]
+    fn test_clean_card_name() {
+        // valid trailing characters remain
+        assert_eq!(clean_card_name("Snare!"), "Snare!");
+        assert_eq!(clean_card_name("Eli 1.0"), "Eli 1.0");
+        assert_eq!(clean_card_name("The World is Yours*"), "The World is Yours*");
+        assert_eq!(clean_card_name("Masterwork (v37)"), "Masterwork (v37)");
+        assert_eq!(clean_card_name("\"Freedom Through Equality\""), "\"Freedom Through Equality\"");
+        assert_eq!(clean_card_name("Title (with parens)"), "Title (with parens)");
+
+        // invalid trailing characters get stripped
+        assert_eq!(clean_card_name("Hedge Fund ●"), "Hedge Fund");
+        assert_eq!(clean_card_name("Sure Gamble -"), "Sure Gamble");
+        assert_eq!(clean_card_name("Paperclip ●●●"), "Paperclip");
+        assert_eq!(clean_card_name("Card Name ! ●"), "Card Name !");
+        assert_eq!(clean_card_name("Card Name ●●●"), "Card Name");
     }
 
     #[test]

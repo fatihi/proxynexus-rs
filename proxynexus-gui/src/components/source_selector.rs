@@ -99,7 +99,7 @@ pub fn SourceSelector(props: SourceSelectorProps) -> Element {
                         },
                         option { value: "", disabled: true, "Select a set..." }
                         if let Some(sets) = available_sets.read().as_ref() {
-                            for (name, _code) in sets {
+                            for (name, _code) in sets.iter().rev() {
                                 option { value: "{name}", "{name}" }
                             }
                         }
