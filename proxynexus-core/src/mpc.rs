@@ -66,6 +66,7 @@ async fn process_side<W: Write + Seek>(
     image_cache: &mut HashMap<String, (image::RgbImage, ImageFormat)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut copy_counters: HashMap<(String, String, String), u32> = HashMap::new();
+    let mut uniqueness_counter: u32 = 0;
 
     for printing in printings {
         let key = (
@@ -83,6 +84,7 @@ async fn process_side<W: Write + Seek>(
                 .chain(printing.parts.into_iter().map(|a| (a.name, a.image_key)));
 
         for (part_name, current_image_key) in image_keys_to_process {
+            uniqueness_counter += 1;
             let start = Instant::now();
 
             if !image_cache.contains_key(&current_image_key) {
@@ -95,7 +97,7 @@ async fn process_side<W: Write + Seek>(
 
             let (bordered_base, image_format) = image_cache.get(&current_image_key).unwrap();
             let mut final_image = bordered_base.clone();
-            apply_uniqueness_marker(&mut final_image, *copy_num);
+            apply_uniqueness_marker(&mut final_image, uniqueness_counter);
             let bordered_bytes = encode_image(final_image, *image_format)?;
 
             let ext = if *image_format == ImageFormat::Png {

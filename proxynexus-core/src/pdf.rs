@@ -99,7 +99,7 @@ pub async fn generate_pdf(
                 } else {
                     Image::from_jpeg(Data::from(image_data), true)?
                 };
-                
+
                 image_cache.insert(image_key.clone(), image);
             }
 

@@ -67,14 +67,19 @@ pub fn create_bordered_base(img: &DynamicImage) -> RgbImage {
 // changes a few pixels near top left corner, based on position.
 // makes the duplicate image unique, so that MPC doesn't deduplicate it on upload
 pub fn apply_uniqueness_marker(img: &mut RgbImage, position: u32) {
-    if position == 0 {
-        return;
-    }
+    let r_add = ((position * 73) % 256) as u8;
+    let g_add = ((position * 137) % 256) as u8;
+    let b_add = ((position * 193) % 256) as u8;
 
-    let x = position;
-    if x < img.width() {
-        let pixel = img.get_pixel_mut(x, 0);
-        pixel.0[0] = pixel.0[0].saturating_add((position * 10) as u8);
+    for y in 0..2 {
+        for x in 0..2 {
+            if x < img.width() && y < img.height() {
+                let pixel = img.get_pixel_mut(x, y);
+                pixel.0[0] = pixel.0[0].wrapping_add(r_add);
+                pixel.0[1] = pixel.0[1].wrapping_add(g_add);
+                pixel.0[2] = pixel.0[2].wrapping_add(b_add);
+            }
+        }
     }
 }
 
