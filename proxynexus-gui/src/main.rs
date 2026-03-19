@@ -383,6 +383,7 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
             onmouseleave: move |_| {
                 drag_state.set(None);
             },
+            onwheel: move |_| open_variant_selector.set(None),
 
             div {
                 class: "flex-1 flex flex-col min-w-0 p-6 overflow-y-auto",

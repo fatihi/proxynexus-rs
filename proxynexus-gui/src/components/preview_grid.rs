@@ -225,7 +225,6 @@ pub fn VariantSelector(props: VariantSelectorProps) -> Element {
                 if props.total_copies > 1 {
                     div {
                         class: "mt-2 pt-3 border-t border-gray-100 flex flex-col gap-2 animate-fade-in",
-                        div { class: "text-sm text-gray-700 font-medium", "Variant applied." }
                         button {
                             class: "w-full py-1.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-semibold rounded-md shadow-sm transition-colors border border-gray-300",
                             onclick: move |_| {
