@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
+use proxynexus_core::card_source::{Cardlist, NrdbUrl, SetName};
+use proxynexus_core::card_store::normalize_title;
 use proxynexus_core::db_storage::DbStorage;
-use proxynexus_core::query::resolve_query_printings;
+use proxynexus_core::query::{apply_variant_overrides, resolve_query_printings};
+use std::collections::HashMap;
 use std::time::Duration;
 use tracing::error;
 use tracing_subscriber::{
@@ -233,7 +236,10 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
 
     let active_source = use_signal(ActiveSource::default);
     let mut debounced_source = use_signal(ActiveSource::default);
-    let mut debounce_task = use_signal(|| None::<dioxus::dioxus_core::Task>);
+    let mut debounce_task = use_signal(|| None::<dioxus_core::Task>);
+
+    let mut global_overrides = use_signal(HashMap::<String, String>::new);
+    let mut index_overrides = use_signal(HashMap::<(String, usize), String>::new);
 
     use_effect(move || {
         let current_source = active_source();
@@ -248,30 +254,47 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
         })));
     });
 
-    let query_result = use_resource(move || async move {
+    let raw_data_resource = use_resource(move || async move {
         let source = debounced_source();
         let mut db = db_signal.write();
 
         match source {
             ActiveSource::Cardlist(text) => {
                 if text.trim().is_empty() {
-                    return Ok(Vec::new());
+                    return Ok((Vec::new(), HashMap::new()));
                 }
-                resolve_query_printings(&proxynexus_core::card_source::Cardlist(text), &mut db)
-                    .await
+                resolve_query_printings(&Cardlist(text), &mut db).await
             }
             ActiveSource::SetName(name) => {
                 if name.trim().is_empty() {
-                    return Ok(Vec::new());
+                    return Ok((Vec::new(), HashMap::new()));
                 }
-                resolve_query_printings(&proxynexus_core::card_source::SetName(name), &mut db).await
+                resolve_query_printings(&SetName(name), &mut db).await
             }
             ActiveSource::NrdbUrl(url) => {
                 if url.trim().is_empty() {
-                    return Ok(Vec::new());
+                    return Ok((Vec::new(), HashMap::new()));
                 }
-                resolve_query_printings(&proxynexus_core::card_source::NrdbUrl(url), &mut db).await
+                resolve_query_printings(&NrdbUrl(url), &mut db).await
             }
+        }
+    });
+
+    let final_result = use_memo(move || {
+        let res = raw_data_resource.read();
+        let res_val = res.as_ref()?;
+
+        match res_val {
+            Ok((base, available)) => {
+                let applied = apply_variant_overrides(
+                    base,
+                    available,
+                    &global_overrides.read(),
+                    &index_overrides.read(),
+                );
+                Some(Ok((applied, available.clone())))
+            }
+            Err(e) => Some(Err(e.to_string())),
         }
     });
 
@@ -295,13 +318,34 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
 
             div {
                 class: "flex-1 flex flex-col bg-gray-50 min-w-0 p-6 overflow-auto",
-                if let Some(result) = query_result.read().as_ref() {
+                if let Some(result) = final_result.read().as_ref() {
                     match result {
-                        Ok(printings) if printings.is_empty() => rsx! {
+                        Ok((printings, _)) if printings.is_empty() => rsx! {
                             div { class: "text-gray-500", "Preview of selected cards..." }
                         },
-                        Ok(printings) => rsx! {
-                            PreviewGrid { printings: printings.clone() }
+                        Ok((printings, available)) => {
+                            let mut card_counts = HashMap::new();
+                            for p in printings.iter() {
+                                let normalized = normalize_title(&p.card_title);
+                                *card_counts.entry(normalized).or_insert(0) += 1;
+                            }
+
+                            rsx! {
+                                PreviewGrid {
+                                    printings: printings.clone(),
+                                    available_variants: available.clone(),
+                                    card_counts,
+                                    on_override: move |(occurrence, apply_to_all, title, variant_str): (usize, bool, String, String)| {
+                                        let normalized = normalize_title(&title);
+                                        if apply_to_all {
+                                            global_overrides.write().insert(normalized.clone(), variant_str);
+                                            index_overrides.write().retain(|(t, _), _| t != &normalized);
+                                        } else {
+                                            index_overrides.write().insert((normalized, occurrence), variant_str);
+                                        }
+                                    }
+                                }
+                            }
                         },
                         Err(e) => rsx! {
                             div { class: "text-red-500 font-bold", "Error: {e}" }

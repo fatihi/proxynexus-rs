@@ -30,6 +30,7 @@ struct CardRequestRow {
     code: String,
     title: String,
     quantity: i64,
+    pack_code: String,
 }
 
 #[derive(FromGlueRow)]
@@ -48,6 +49,7 @@ struct AvailablePrintingRow {
     name: String,
     side: String,
     pack_code: String,
+    date_release: Option<String>,
 }
 
 pub fn normalize_title(title: &str) -> String {
@@ -339,7 +341,7 @@ impl<'a> CardStore<'a> {
         set_name: &str,
     ) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
         let query = format!(
-            "SELECT c.code, c.title, c.quantity
+            "SELECT c.code, c.title, c.quantity, c.pack_code
              FROM cards c
              JOIN packs p ON c.pack_code = p.code
              WHERE LOWER(p.name) = {}
@@ -360,7 +362,7 @@ impl<'a> CardStore<'a> {
                         code: row.code,
                         variant: None,
                         collection: None,
-                        pack_code: None,
+                        pack_code: Some(row.pack_code),
                     },
                     row.quantity as usize,
                 ));
@@ -440,17 +442,12 @@ impl<'a> CardStore<'a> {
         let in_clause = build_in_clause(&unique_titles);
 
         let query = format!(
-            "SELECT c.title, c.code, p.variant, p.file_path, p.part, col.name, c.side, c.pack_code
+            "SELECT c.title, c.code, p.variant, p.file_path, p.part, col.name, c.side, c.pack_code, pks.date_release
              FROM printings p
              JOIN cards c ON p.card_code = c.code
              JOIN collections col ON p.collection_id = col.id
              JOIN packs pks ON c.pack_code = pks.code
-             WHERE c.title_normalized IN ({})
-             ORDER BY
-                CASE WHEN p.variant = 'original' THEN 0 ELSE 1 END,
-                CASE WHEN pks.date_release IS NULL THEN 1 ELSE 0 END,
-                pks.date_release DESC,
-                col.added_date",
+             WHERE c.title_normalized IN ({})",
             in_clause
         );
 
@@ -459,65 +456,7 @@ impl<'a> CardStore<'a> {
 
         if let Some(payload) = payloads.into_iter().next() {
             let printing_rows = payload.rows_as::<AvailablePrintingRow>()?;
-
-            let mut groups: HashMap<(String, String, String, String), Vec<AvailablePrintingRow>> =
-                HashMap::new();
-
-            for row in printing_rows {
-                let normalized = normalize_title(&row.title);
-                let key = (
-                    normalized,
-                    row.code.clone(),
-                    row.variant.clone(),
-                    row.name.clone(),
-                );
-                groups.entry(key).or_default().push(row);
-            }
-
-            for ((normalized, code, variant, collection), rows) in groups {
-                let mut image_key = String::new();
-                let mut parts = Vec::new();
-
-                let first_row = &rows[0];
-                let title = first_row.title.clone();
-                let side = first_row.side.clone();
-                let pack_code = first_row.pack_code.clone();
-
-                for row in rows {
-                    if row.part == "front" {
-                        image_key = row.file_path;
-                    } else {
-                        parts.push(PrintingPart {
-                            name: row.part,
-                            image_key: row.file_path,
-                        });
-                    }
-                }
-
-                let printing = Printing {
-                    card_title: title,
-                    card_code: code,
-                    variant,
-                    image_key,
-                    parts,
-                    collection,
-                    side,
-                    pack_code,
-                };
-
-                resolved_printings
-                    .entry(normalized)
-                    .or_default()
-                    .push(printing);
-            }
-
-            for printings in resolved_printings.values_mut() {
-                printings.sort_by(|a, b| {
-                    let a_is_original = a.variant == "original";
-                    let b_is_original = b.variant == "original";
-                    b_is_original.cmp(&a_is_original)
-                });
-            }
+            resolved_printings = Self::assemble_printings(printing_rows);
         }
 
         if resolved_printings.is_empty() && !card_requests.is_empty() {
@@ -536,6 +475,68 @@ impl<'a> CardStore<'a> {
         }
 
         Ok(resolved_printings)
+    }
+
+    fn assemble_printings(rows: Vec<AvailablePrintingRow>) -> HashMap<String, Vec<Printing>> {
+        let mut resolved_printings: HashMap<String, Vec<Printing>> = HashMap::new();
+        let mut groups: HashMap<(String, String, String, String), Vec<AvailablePrintingRow>> =
+            HashMap::new();
+
+        for row in rows {
+            let normalized = normalize_title(&row.title);
+            let key = (
+                normalized,
+                row.code.clone(),
+                row.variant.clone(),
+                row.name.clone(),
+            );
+            groups.entry(key).or_default().push(row);
+        }
+
+        for ((normalized, code, variant, collection), rows) in groups {
+            let mut image_key = String::new();
+            let mut parts = Vec::new();
+
+            let first_row = &rows[0];
+            let title = first_row.title.clone();
+            let side = first_row.side.clone();
+            let pack_code = first_row.pack_code.clone();
+            let date_release = first_row.date_release.clone();
+
+            for row in rows {
+                if row.part == "front" {
+                    image_key = row.file_path;
+                } else {
+                    parts.push(PrintingPart {
+                        name: row.part,
+                        image_key: row.file_path,
+                    });
+                }
+            }
+
+            let printing = Printing {
+                card_title: title,
+                card_code: code,
+                variant,
+                image_key,
+                parts,
+                collection,
+                side,
+                pack_code,
+                date_release,
+            };
+
+            resolved_printings
+                .entry(normalized)
+                .or_default()
+                .push(printing);
+        }
+
+        for printings in resolved_printings.values_mut() {
+            printings.sort_by_key(|p| (p.date_release.is_none(), p.date_release.clone()));
+        }
+
+        resolved_printings
     }
 
     pub fn resolve_printings(
@@ -571,36 +572,23 @@ impl<'a> CardStore<'a> {
     ) -> Result<Printing, Box<dyn std::error::Error>> {
         let mut candidates: Vec<&Printing> = printings.iter().collect();
 
-        if let Some(ref target_set) = request.pack_code {
-            let mut set_matches = candidates.clone();
-            set_matches.retain(|p| &p.pack_code == target_set);
+        let target_variant = request.variant.as_deref().unwrap_or("original");
 
-            if !set_matches.is_empty() {
-                candidates = set_matches;
-            }
-        }
-
-        if let Some(ref target_variant) = request.variant {
-            let mut variant_matches = candidates.clone();
-            variant_matches.retain(|p| &p.variant == target_variant);
-
-            if !variant_matches.is_empty() {
-                candidates = variant_matches;
-            }
-        }
-
-        if let Some(ref target_coll) = request.collection {
-            let mut coll_matches = candidates.clone();
-            coll_matches.retain(|p| &p.collection == target_coll);
-
-            if !coll_matches.is_empty() {
-                candidates = coll_matches;
-            }
-        }
+        candidates.sort_by_key(|p| {
+            (
+                p.variant != target_variant,
+                p.card_code != request.code,
+                request.collection.as_ref() != Some(&p.collection),
+                request.pack_code.as_ref() != Some(&p.pack_code),
+                p.date_release.is_none(),
+                p.date_release.clone(),
+            )
+        });
 
         candidates
-            .first()
-            .map(|p| (*p).clone())
+            .into_iter()
+            .next()
+            .cloned()
             .ok_or_else(|| format!("No matching printing found for '{}'", request.title).into())
     }
 }
@@ -610,25 +598,46 @@ mod tests {
     use super::*;
     use crate::models::Printing;
 
-    fn mock_printing(variant: &str, coll: &str, pack: &str) -> Printing {
+    fn mock_printing(
+        code: &str,
+        variant: &str,
+        coll: &str,
+        pack: &str,
+        date: Option<&str>,
+    ) -> Printing {
         Printing {
             card_title: "Sure Gamble".into(),
-            card_code: "01050".into(),
+            card_code: code.into(),
             variant: variant.into(),
-            image_key: "01050.jpg".into(),
+            image_key: format!("{}.jpg", code),
             parts: Vec::new(),
             collection: coll.into(),
             side: "runner".into(),
             pack_code: pack.into(),
+            date_release: date.map(|s| s.to_string()),
         }
     }
 
     #[test]
     fn test_select_printing_prioritization() {
-        let p1 = mock_printing("original", "ffg-en", "core");
-        let p2 = mock_printing("alt1", "standard", "core");
-        let p3 = mock_printing("original", "alt-arts", "core");
-        let available = vec![p1.clone(), p2.clone(), p3.clone()];
+        let p1 = mock_printing("01050", "original", "ffg-en", "core", Some("2012-12-01"));
+        let p2 = mock_printing("01050", "alt1", "standard", "core", Some("2012-12-01"));
+        let p3 = mock_printing(
+            "20050",
+            "original",
+            "alt-arts",
+            "revised",
+            Some("2017-01-01"),
+        );
+        let p_collection = mock_printing(
+            "01050",
+            "original",
+            "alt-arts",
+            "revised",
+            Some("2017-01-01"),
+        );
+
+        let available = vec![p1.clone(), p2.clone(), p3.clone(), p_collection.clone()];
 
         // Exact variant match
         let req = CardRequest {
@@ -660,21 +669,60 @@ mod tests {
             "alt-arts"
         );
 
-        // When requested variant doesn't exist
+        // Exact pack match
         let req = CardRequest {
             title: "Sure Gamble".into(),
             code: "01050".into(),
-            variant: Some("nonexistent".into()),
+            variant: None,
             collection: None,
-            pack_code: None,
+            pack_code: Some("core".into()),
         };
-        // Return the first item found
         assert_eq!(
             CardStore::select_printing(&req, &available)
                 .unwrap()
-                .variant,
-            "original"
+                .pack_code,
+            "core"
         );
+
+        // Variant Fallback: If 'core' original is missing, pick 'revised' original over 'core' alt
+        let available_missing_core_orig = vec![p2.clone(), p3.clone()];
+        let req = CardRequest {
+            title: "Sure Gamble".into(),
+            code: "01050".into(),
+            variant: Some("original".into()),
+            collection: None,
+            pack_code: Some("core".into()),
+        };
+        let result = CardStore::select_printing(&req, &available_missing_core_orig).unwrap();
+        assert_eq!(result.variant, "original");
+        assert_eq!(result.pack_code, "revised");
+
+        // Default to earliest original
+        let req = CardRequest {
+            title: "Sure Gamble".into(),
+            code: "01050".into(),
+            variant: None,
+            collection: None,
+            pack_code: None,
+        };
+        let result = CardStore::select_printing(&req, &available).unwrap();
+        assert_eq!(result.variant, "original");
+        assert_eq!(result.date_release, Some("2012-12-01".to_string()));
+
+        // Variant Match beats Exact ID Match
+        let p4_revised_alt =
+            mock_printing("20050", "alt2", "standard", "revised", Some("2017-01-01"));
+        let available_mixed = vec![p1.clone(), p4_revised_alt.clone()];
+        let req = CardRequest {
+            title: "Sure Gamble".into(),
+            code: "20050".into(),
+            variant: Some("original".into()),
+            collection: None,
+            pack_code: None,
+        };
+        let result = CardStore::select_printing(&req, &available_mixed).unwrap();
+        assert_eq!(result.card_code, "01050");
+        assert_eq!(result.variant, "original");
     }
 
     #[test]

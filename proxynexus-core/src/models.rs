@@ -43,6 +43,7 @@ pub struct Printing {
     pub collection: String,
     pub side: String,
     pub pack_code: String,
+    pub date_release: Option<String>,
 }
 
 #[derive(Debug, Clone)]

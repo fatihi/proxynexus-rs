@@ -33,12 +33,45 @@ pub async fn generate_query_output(
 pub async fn resolve_query_printings(
     card_source: &impl CardSource,
     db: &mut DbStorage,
-) -> Result<Vec<Printing>, Box<dyn std::error::Error>> {
+) -> Result<(Vec<Printing>, HashMap<String, Vec<Printing>>), Box<dyn std::error::Error>> {
     let mut store = CardStore::new(db)?;
     let card_requests = card_source.to_card_requests(&mut store).await?;
 
     let available = store.get_available_printings(&card_requests).await?;
-    store.resolve_printings(&card_requests, &available)
+    let printings = store.resolve_printings(&card_requests, &available)?;
+    Ok((printings, available))
+}
+
+pub fn apply_variant_overrides(
+    base: &[Printing],
+    available: &HashMap<String, Vec<Printing>>,
+    global_overrides: &HashMap<String, String>,
+    index_overrides: &HashMap<(String, usize), String>,
+) -> Vec<Printing> {
+    let mut occurrence_map = HashMap::<String, usize>::new();
+    let mut result = Vec::with_capacity(base.len());
+
+    for p in base {
+        let title_norm = normalize_title(&p.card_title);
+        let occurrence = occurrence_map.entry(title_norm.clone()).or_insert(0);
+
+        let override_str = index_overrides
+            .get(&(title_norm.clone(), *occurrence))
+            .or_else(|| global_overrides.get(&title_norm));
+
+        let mut resolved = p.clone();
+        if let Some(over_str) = override_str
+            && let Some(variants) = available.get(&title_norm)
+            && let Some(variant_p) = variants
+                .iter()
+                .find(|v| format!("{}:{}:{}", v.variant, v.collection, v.pack_code) == *over_str)
+        {
+            resolved = variant_p.clone();
+        }
+        result.push(resolved);
+        *occurrence += 1;
+    }
+    result
 }
 
 fn format_query_output(
