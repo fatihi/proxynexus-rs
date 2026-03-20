@@ -77,7 +77,7 @@ pub fn PreviewGrid(props: PreviewGridProps) -> Element {
 
                             if has_variants {
                                 div {
-                                    class: "absolute -inset-0.5 bg-cyan-500 rounded-lg blur opacity-100"
+                                    class: "absolute -inset-1 rounded-lg [background:conic-gradient(from_var(--border-angle),var(--color-cyan-200)_80%,_var(--color-cyan-500)_86%,_var(--color-cyan-300)_90%,_var(--color-cyan-500)_94%,_var(--color-cyan-200))] animate-border"
                                 }
                             }
 

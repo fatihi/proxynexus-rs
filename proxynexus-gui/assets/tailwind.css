@@ -8,8 +8,9 @@
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
     --color-red-500: oklch(63.7% 0.237 25.331);
+    --color-cyan-200: oklch(91.7% 0.08 205.041);
+    --color-cyan-300: oklch(86.5% 0.127 207.078);
     --color-cyan-500: oklch(71.5% 0.143 215.221);
-    --color-cyan-600: oklch(60.9% 0.126 221.723);
     --color-blue-400: oklch(70.7% 0.165 254.624);
     --color-blue-500: oklch(62.3% 0.214 259.815);
     --color-blue-600: oklch(54.6% 0.245 262.881);
@@ -40,6 +41,7 @@
     --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     --default-font-family: var(--font-sans);
     --default-mono-font-family: var(--font-mono);
+    --animate-border: border 4s linear infinite;
   }
 }
 @layer base {
@@ -200,8 +202,8 @@
   .static {
     position: static;
   }
-  .-inset-0\.5 {
-    inset: calc(var(--spacing) * -0.5);
+  .-inset-1 {
+    inset: calc(var(--spacing) * -1);
   }
   .inset-0 {
     inset: calc(var(--spacing) * 0);
@@ -262,6 +264,9 @@
   }
   .shrink-0 {
     flex-shrink: 0;
+  }
+  .animate-border {
+    animation: var(--animate-border);
   }
   .cursor-col-resize {
     cursor: col-resize;
@@ -369,12 +374,6 @@
   .bg-blue-600 {
     background-color: var(--color-blue-600);
   }
-  .bg-cyan-500 {
-    background-color: var(--color-cyan-500);
-  }
-  .bg-cyan-600 {
-    background-color: var(--color-cyan-600);
-  }
   .bg-gray-50 {
     background-color: var(--color-gray-50);
   }
@@ -471,14 +470,8 @@
   .text-white {
     color: var(--color-white);
   }
-  .opacity-75 {
-    opacity: 75%;
-  }
   .opacity-90 {
     opacity: 90%;
-  }
-  .opacity-100 {
-    opacity: 100%;
   }
   .shadow {
     --tw-shadow: 0 1px 3px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 1px 2px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
@@ -511,10 +504,6 @@
     --tw-ring-offset-width: 1px;
     --tw-ring-offset-shadow: var(--tw-ring-inset,) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
   }
-  .blur {
-    --tw-blur: blur(8px);
-    filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
-  }
   .filter {
     filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
   }
@@ -539,6 +528,9 @@
   .select-none {
     -webkit-user-select: none;
     user-select: none;
+  }
+  .\[background\:conic-gradient\(from_var\(--border-angle\)\,var\(--color-cyan-200\)_80\%\,_var\(--color-cyan-500\)_86\%\,_var\(--color-cyan-300\)_90\%\,_var\(--color-cyan-500\)_94\%\,_var\(--color-cyan-200\)\)\] {
+    background: conic-gradient(from var(--border-angle),var(--color-cyan-200) 80%, var(--color-cyan-500) 86%, var(--color-cyan-300) 90%, var(--color-cyan-500) 94%, var(--color-cyan-200));
   }
   .hover\:border-gray-400 {
     &:hover {
@@ -593,6 +585,11 @@
       --tw-ring-color: var(--color-blue-400);
     }
   }
+}
+@property --border-angle {
+  inherits: false;
+  initial-value: 0deg;
+  syntax: '<angle>';
 }
 @property --tw-border-style {
   syntax: "*";
@@ -725,6 +722,11 @@
   syntax: "*";
   inherits: false;
 }
+@keyframes border {
+  to {
+    --border-angle: 360deg;
+  }
+}
 @layer properties {
   @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {
     *, ::before, ::after, ::backdrop {
@@ -758,6 +760,7 @@
       --tw-drop-shadow-alpha: 100%;
       --tw-drop-shadow-size: initial;
       --tw-duration: initial;
+      --border-angle: 0deg;
     }
   }
 }
