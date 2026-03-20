@@ -143,12 +143,10 @@ async fn process_side<W: Write + Seek>(
                 cb(*processed_images as f32 / total_images as f32);
             }
 
-            if (*processed_images).is_multiple_of(8) || *processed_images == total_images {
-                #[cfg(not(target_arch = "wasm32"))]
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                #[cfg(target_arch = "wasm32")]
-                gloo_timers::future::TimeoutFuture::new(0).await;
-            }
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            #[cfg(target_arch = "wasm32")]
+            gloo_timers::future::TimeoutFuture::new(0).await;
 
             info!(
                 "Runtime for image {}: {:?}",

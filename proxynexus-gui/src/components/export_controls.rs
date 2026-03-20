@@ -64,7 +64,7 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                 div { class: "flex flex-col gap-2 mt-2",
                     div { class: "w-full bg-gray-200 rounded-full h-4 overflow-hidden",
                         div {
-                            class: "bg-blue-600 h-full transition-all duration-300",
+                            class: "bg-blue-600 h-full transition-all duration-75",
                             style: "width: {p * 100.0}%",
                         }
                     }

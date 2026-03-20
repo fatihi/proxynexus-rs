@@ -61,16 +61,16 @@ pub async fn generate_pdf(
     page_size: PageSize,
     progress: Option<Box<dyn Fn(f32) + Send + Sync>>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let mut image_keys: Vec<String> = Vec::new();
+    let total_images: usize = printings.iter().map(|p| 1 + p.parts.len()).sum();
+    let mut processed_images: usize = 0;
+
+    let mut image_keys: Vec<String> = Vec::with_capacity(total_images);
     for p in &printings {
         image_keys.push(p.image_key.clone());
         for part in &p.parts {
             image_keys.push(part.image_key.clone());
         }
     }
-
-    let total_images = image_keys.len();
-    let mut processed_images: usize = 0;
 
     let mut document = Document::new();
     let (page_width, page_height) = page_size.dimensions();
@@ -114,12 +114,10 @@ pub async fn generate_pdf(
                 cb(processed_images as f32 / total_images as f32);
             }
 
-            if processed_images.is_multiple_of(8) || processed_images == total_images {
-                #[cfg(not(target_arch = "wasm32"))]
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                #[cfg(target_arch = "wasm32")]
-                gloo_timers::future::TimeoutFuture::new(0).await;
-            }
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            #[cfg(target_arch = "wasm32")]
+            gloo_timers::future::TimeoutFuture::new(0).await;
 
             info!("Runtime for image {}: {:?}", image_key, start.elapsed());
         }
