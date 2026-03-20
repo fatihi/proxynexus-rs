@@ -15,6 +15,9 @@
     --color-blue-500: oklch(62.3% 0.214 259.815);
     --color-blue-600: oklch(54.6% 0.245 262.881);
     --color-blue-700: oklch(48.8% 0.243 264.376);
+    --color-fuchsia-200: oklch(90.3% 0.076 319.62);
+    --color-fuchsia-300: oklch(83.3% 0.145 321.434);
+    --color-fuchsia-500: oklch(66.7% 0.295 322.15);
     --color-gray-50: oklch(98.5% 0.002 247.839);
     --color-gray-100: oklch(96.7% 0.003 264.542);
     --color-gray-200: oklch(92.8% 0.006 264.531);
@@ -545,6 +548,9 @@
   }
   .\[background\:conic-gradient\(from_var\(--border-angle\)\,var\(--color-cyan-200\)_80\%\,_var\(--color-cyan-500\)_86\%\,_var\(--color-cyan-300\)_90\%\,_var\(--color-cyan-500\)_94\%\,_var\(--color-cyan-200\)\)\] {
     background: conic-gradient(from var(--border-angle),var(--color-cyan-200) 80%, var(--color-cyan-500) 86%, var(--color-cyan-300) 90%, var(--color-cyan-500) 94%, var(--color-cyan-200));
+  }
+  .\[background\:conic-gradient\(from_var\(--border-angle\)\,var\(--color-fuchsia-200\)_80\%\,_var\(--color-fuchsia-500\)_86\%\,_var\(--color-fuchsia-300\)_90\%\,_var\(--color-fuchsia-500\)_94\%\,_var\(--color-fuchsia-200\)\)\] {
+    background: conic-gradient(from var(--border-angle),var(--color-fuchsia-200) 80%, var(--color-fuchsia-500) 86%, var(--color-fuchsia-300) 90%, var(--color-fuchsia-500) 94%, var(--color-fuchsia-200));
   }
   .hover\:z-20 {
     &:hover {

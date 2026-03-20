@@ -8,6 +8,7 @@ use crate::components::variant_selector::VariantSelectorState;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct PreviewGridProps {
+    pub base_printings: Vec<Printing>,
     pub printings: Vec<Printing>,
     pub available_variants: HashMap<String, Vec<Printing>>,
     pub open_variant_selector: Signal<Option<VariantSelectorState>>,
@@ -19,6 +20,7 @@ pub fn PreviewGrid(props: PreviewGridProps) -> Element {
     let mut mounted_elements = use_signal(HashMap::<(String, usize), Rc<MountedData>>::new);
 
     let printings = props.printings.clone();
+    let base_printings = props.base_printings.clone();
     let available_variants = props.available_variants.clone();
 
     let mut occurrence_tracker = HashMap::<String, usize>::new();
@@ -26,7 +28,7 @@ pub fn PreviewGrid(props: PreviewGridProps) -> Element {
     rsx! {
         div {
             class: "flex flex-wrap gap-4",
-            for printing in printings.into_iter() {
+            for (printing, base_printing) in printings.into_iter().zip(base_printings.into_iter()) {
                 {
                     let title_normalized = proxynexus_core::card_store::normalize_title(&printing.card_title);
                     let occurrence = *occurrence_tracker.entry(title_normalized.clone()).or_insert(0);
@@ -41,6 +43,16 @@ pub fn PreviewGrid(props: PreviewGridProps) -> Element {
 
                     let has_variants = available_variants.get(&title_normalized).is_some_and(|v| v.len() > 1);
                     let cursor_class = if has_variants { "cursor-pointer" } else { "" };
+
+                    let is_overridden = printing.variant != base_printing.variant
+                        || printing.collection != base_printing.collection
+                        || printing.pack_code != base_printing.pack_code;
+
+                    let border_bg_class = if is_overridden {
+                        "[background:conic-gradient(from_var(--border-angle),var(--color-fuchsia-200)_80%,_var(--color-fuchsia-500)_86%,_var(--color-fuchsia-300)_90%,_var(--color-fuchsia-500)_94%,_var(--color-fuchsia-200))]"
+                    } else {
+                        "[background:conic-gradient(from_var(--border-angle),var(--color-cyan-200)_80%,_var(--color-cyan-500)_86%,_var(--color-cyan-300)_90%,_var(--color-cyan-500)_94%,_var(--color-cyan-200))]"
+                    };
 
                     rsx! {
                         div {
@@ -77,7 +89,7 @@ pub fn PreviewGrid(props: PreviewGridProps) -> Element {
 
                             if has_variants {
                                 div {
-                                    class: "absolute -inset-1 rounded-lg [background:conic-gradient(from_var(--border-angle),var(--color-cyan-200)_80%,_var(--color-cyan-500)_86%,_var(--color-cyan-300)_90%,_var(--color-cyan-500)_94%,_var(--color-cyan-200))] animate-border"
+                                    class: "absolute -inset-1 rounded-lg {border_bg_class} animate-border"
                                 }
                             }
 

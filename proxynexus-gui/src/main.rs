@@ -292,7 +292,7 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
                     &global_overrides.read(),
                     &index_overrides.read(),
                 );
-                Some(Ok((applied, available.clone())))
+                Some(Ok((base.clone(), applied, available.clone())))
             }
             Err(e) => Some(Err(e.to_string())),
         }
@@ -300,7 +300,7 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
 
     let printings_by_title = use_memo(move || {
         let res = ordered_printings.read();
-        let (printings, available) = res.as_ref()?.as_ref().ok()?;
+        let (_base, printings, available) = res.as_ref()?.as_ref().ok()?;
 
         let mut grouped = HashMap::<String, Vec<Printing>>::new();
         for p in printings {
@@ -389,12 +389,13 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
                 style: "z-index: 20;",
                 if let Some(result) = ordered_printings.read().as_ref() {
                     match result {
-                        Ok((printings, _)) if printings.is_empty() => rsx! {
+                        Ok((_, printings, _)) if printings.is_empty() => rsx! {
                             div { class: "text-gray-500", "Preview of selected cards..." }
                         },
-                        Ok((printings, available)) => {
+                        Ok((base_printings, printings, available)) => {
                             rsx! {
                                 PreviewGrid {
+                                    base_printings: base_printings.clone(),
                                     printings: printings.clone(),
                                     available_variants: available.clone(),
                                     open_variant_selector,
