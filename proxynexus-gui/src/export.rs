@@ -149,6 +149,20 @@ pub async fn run_export(
         }
     };
 
+    let selected_printings = if let Ok(ref printings) = resolved_printings {
+        printings
+            .iter()
+            .map(|p| {
+                format!(
+                    "{} [{}:{}:{}]",
+                    p.card_title, p.variant, p.collection, p.pack_code
+                )
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     let result = match resolved_printings {
         Ok(printings) => match config {
             ExportConfig::Pdf(page_size) => {
@@ -197,6 +211,7 @@ pub async fn run_export(
         success,
         source_type,
         source_text,
+        selected_printings,
         error_message,
     });
 

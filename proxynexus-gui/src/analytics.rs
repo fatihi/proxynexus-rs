@@ -18,6 +18,7 @@ pub struct GenerationReport {
     pub success: bool,
     pub source_type: &'static str,
     pub source_text: String,
+    pub selected_printings: Vec<String>,
     pub error_message: Option<String>,
 }
 
@@ -89,6 +90,7 @@ pub fn send_report(report: GenerationReport) {
             "success": report.success,
             "source_type": report.source_type,
             "source_text": report.source_text.lines().collect::<Vec<_>>(),
+            "selected_printings": report.selected_printings,
             "error_message": report.error_message,
             "logs": logs,
         }
