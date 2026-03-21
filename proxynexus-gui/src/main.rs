@@ -78,7 +78,7 @@ fn main() {
                     .with_window(
                         dioxus::desktop::WindowBuilder::new()
                             .with_title("Proxy Nexus")
-                            .with_inner_size(dioxus::desktop::LogicalSize::new(1200.0, 1000.0)),
+                            .with_inner_size(dioxus::desktop::LogicalSize::new(1850.0, 1400.0)),
                     )
                     .with_asynchronous_custom_protocol(
                         "proxynexus",
@@ -215,21 +215,18 @@ fn App() -> Element {
         });
     });
 
-    if !*db_ready.read() {
-        return rsx! { div { class: "flex h-screen items-center justify-center bg-gray-50 text-gray-500", "Loading Database..." } };
-    }
-
     rsx! {
         Stylesheet { href: MAIN_CSS }
         Stylesheet { href: TAILWIND_CSS }
-        Workspace { db_signal }
+
+        if *db_ready.read() {
+            Workspace { db_signal }
+        }
     }
 }
 
 #[component]
 fn Workspace(db_signal: Signal<DbStorage>) -> Element {
-    let mut sidebar_width = use_signal(|| 400.0);
-    let mut drag_state = use_signal(|| None::<(f64, f64)>);
     let progress = use_signal(|| None::<f32>);
 
     let active_source = use_signal(ActiveSource::default);
@@ -384,20 +381,6 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
         div {
             class: "absolute inset-0 flex overflow-hidden select-none bg-gray-50",
             onclick: move |_| open_variant_selector.set(None),
-            onmousemove: move |evt| {
-                let current_x = evt.data.client_coordinates().x;
-
-                if let Some((start_x, start_width)) = *drag_state.read() {
-                    let delta = current_x - start_x;
-                    sidebar_width.set((start_width - delta).clamp(150.0, 800.0));
-                }
-            },
-            onmouseup: move |_| {
-                drag_state.set(None);
-            },
-            onmouseleave: move |_| {
-                drag_state.set(None);
-            },
             onwheel: move |_| open_variant_selector.set(None),
 
             div {
@@ -428,17 +411,8 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
             }
 
             div {
-                class: "h-full w-1 cursor-col-resize bg-gray-200 hover:bg-blue-400 transition-colors flex-shrink-0",
-                style: "z-index: 15;",
-                onmousedown: move |evt| {
-                    evt.prevent_default();
-                    drag_state.set(Some((evt.data.client_coordinates().x, sidebar_width())));
-                },
-            }
-
-            div {
-                style: "width: {sidebar_width()}px; z-index: 10;",
-                class: "h-full bg-white flex-shrink-0 flex flex-col border-l border-gray-200",
+                style: "z-index: 10;",
+                class: "w-[440px] h-full bg-white flex-shrink-0 flex flex-col border-l border-gray-200",
                 SourceSelector {
                     source_state: active_source,
                     db_signal,

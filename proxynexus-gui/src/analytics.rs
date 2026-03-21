@@ -79,7 +79,7 @@ pub fn send_report(report: GenerationReport) {
 
     let payload = json!({
         "api_key": key,
-        "event": "pdf_generated",
+        "event": "export_generated",
         "distinct_id": get_distinct_id(),
         "properties": {
             "app_version": env!("CARGO_PKG_VERSION"),
