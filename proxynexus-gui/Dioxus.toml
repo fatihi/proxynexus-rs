@@ -1,4 +1,13 @@
 [application]
+name = "ProxyNexus"
+
+[bundle]
+identifier = "net.proxynexus.desktop"
+icon = [
+    "assets/icon.png",
+    "assets/icon.ico",
+    "assets/icon.icns"
+]
 
 [web.app]
 

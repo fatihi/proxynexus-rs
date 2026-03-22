@@ -14,6 +14,7 @@ use tracing_subscriber::{
 pub mod analytics;
 mod components;
 mod export;
+use components::about_modal::AboutModal;
 use components::export_controls::ExportControls;
 use components::preview_grid::PreviewGrid;
 use components::source_selector::{ActiveSource, SourceSelector};
@@ -59,6 +60,7 @@ fn init_tracing() {
     if analytics::is_enabled() {
         let _ = registry.with(analytics::LogCaptureLayer).try_init();
     } else {
+        info!("Analytics disabled: POSTHOG_API_KEY not set");
         let _ = registry.try_init();
     }
 }
@@ -184,10 +186,13 @@ async fn hydrate_wasm_db(db: &mut DbStorage) -> Result<(), String> {
         .await
         .map_err(|e| format!("Failed to read init.sql text: {}", e))?;
 
+    info!("Executing init.sql (size: {} bytes)...", sql.len());
+
     db.execute(&sql)
         .await
         .map_err(|e| format!("Hydration execution error: {}", e))?;
 
+    info!("WASM Hydration Complete!");
     Ok(())
 }
 
@@ -238,6 +243,7 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
 
     let mut open_variant_selector = use_signal(|| None::<VariantSelectorState>);
     let mut is_overrides_reset_pending = use_signal(|| false);
+    let mut is_about_open = use_signal(|| false);
 
     use_effect(move || {
         let current_source = active_source();
@@ -412,7 +418,24 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
 
             div {
                 style: "z-index: 10;",
-                class: "w-[440px] h-full bg-white flex-shrink-0 flex flex-col border-l border-gray-200",
+                class: "relative w-[440px] h-full bg-white flex-shrink-0 flex flex-col border-l border-gray-200",
+                button {
+                    class: "absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10",
+                    onclick: move |_| is_about_open.set(true),
+                    title: "About Proxy Nexus",
+                    svg {
+                        class: "w-6 h-6",
+                        fill: "none",
+                        stroke: "currentColor",
+                        view_box: "0 0 24 24",
+                        stroke_width: "2",
+                        stroke_linecap: "round",
+                        stroke_linejoin: "round",
+                        circle { cx: "12", cy: "12", r: "10" }
+                        path { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" }
+                        path { d: "M12 17h.01" }
+                    }
+                }
                 SourceSelector {
                     source_state: active_source,
                     db_signal,
@@ -437,6 +460,12 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
             }
 
             {variant_selector_overlay}
+
+            if is_about_open() {
+                AboutModal {
+                    on_close: move |_| is_about_open.set(false),
+                }
+            }
         }
     }
 }

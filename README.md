@@ -5,10 +5,15 @@ Focuses on collection management and local processing.
 
 ## Prerequisites
 
+*I'm still working out these details...*
+
 - [Rust](https://rustup.rs/)
-- System dependencies for image processing:
-  - **nasm** (Netwide Assembler)
-  - **libjpeg-turbo** (C headers and library, usually available via your OS package manager as `libturbojpeg0-dev`, `jpeg-turbo`, etc.)
+- [dioxus](https://github.com/DioxusLabs/dioxus/releases/) (required for building the gui)
+- [nasm](https://www.nasm.us/pub/nasm/releasebuilds/3.01/) (only required for desktop builds)
+- [cmake](https://cmake.org/download/)
+
+If you're trying to build the cli, webapp or desktop app on any platform, and you're having trouble, please reach out 
+or create a new issue. I would love to iron our the details.
 
 ## Build CLI
 
