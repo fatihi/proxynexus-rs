@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 use proxynexus_core::card_source::{CardSource, Cardlist, NrdbUrl, SetName};
 use proxynexus_core::db_storage::DbStorage;
 use proxynexus_core::mpc::generate_mpc_zip;
-use proxynexus_core::pdf::generate_pdf;
+use proxynexus_core::pdf::{CutLines, generate_pdf};
 use proxynexus_core::query::apply_variant_overrides;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -166,7 +166,14 @@ pub async fn run_export(
     let result = match resolved_printings {
         Ok(printings) => match config {
             ExportConfig::Pdf(page_size) => {
-                generate_pdf(printings, &provider, page_size, progress_callback).await
+                generate_pdf(
+                    printings,
+                    &provider,
+                    page_size,
+                    CutLines::FullPage,
+                    progress_callback,
+                )
+                .await
             }
             ExportConfig::Mpc => generate_mpc_zip(printings, &provider, progress_callback).await,
         },

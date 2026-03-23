@@ -3,9 +3,12 @@ use crate::models::Printing;
 use image::ImageFormat;
 use krilla::Data;
 use krilla::Document;
-use krilla::geom::{Size, Transform};
+use krilla::geom::{Size, Transform, PathBuilder, Path};
 use krilla::image::Image;
 use krilla::page::PageSettings;
+use krilla::paint::Stroke;
+use krilla::color::rgb;
+use krilla::num::NormalizedF32;
 use std::collections::HashMap;
 use tracing::info;
 use web_time::Instant;
@@ -25,13 +28,31 @@ pub enum PageSize {
     #[default]
     Letter,
     A4,
+    // Custom(f32, f32),
 }
+
+#[derive(Clone, Copy, Debug, Default)]
+pub enum CutLines {
+    #[default]
+    None,
+    Margins,
+    FullPage,
+}
+
+// #[derive(Clone, Copy, Debug, Default)]
+// pub enum Spacing {
+//     #[default]
+//     None,
+//     Margins,
+//     FullPage,
+// }
 
 impl PageSize {
     fn dimensions(&self) -> (f32, f32) {
         match self {
             PageSize::Letter => (LETTER_WIDTH, LETTER_HEIGHT),
             PageSize::A4 => (A4_WIDTH, A4_HEIGHT),
+            // PageSize::Custom(width, height) => (width * POINTS_PER_INCH, height * POINTS_PER_INCH),
         }
     }
 
@@ -39,26 +60,16 @@ impl PageSize {
         match self {
             PageSize::Letter => (36.0, 21.0),
             PageSize::A4 => (30.0, 46.0),
+            // PageSize::Custom(_, _) => (15.0, 15.0),  //todo calculate margins?
         }
     }
-}
-
-fn calculate_card_position(card_index: usize, page_size: &PageSize) -> (f32, f32) {
-    let (left_margin, top_margin) = page_size.margins();
-
-    let col = card_index % 3;
-    let row = card_index / 3;
-
-    let x = left_margin + (col as f32 * CARD_WIDTH);
-    let y = top_margin + (row as f32 * CARD_HEIGHT);
-
-    (x, y)
 }
 
 pub async fn generate_pdf(
     printings: Vec<Printing>,
     image_provider: &impl ImageProvider,
     page_size: PageSize,
+    cut_lines: CutLines,
     progress: Option<Box<dyn Fn(f32) + Send + Sync>>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let total_images: usize = printings.iter().map(|p| 1 + p.parts.len()).sum();
@@ -122,10 +133,120 @@ pub async fn generate_pdf(
             info!("Runtime for image {}: {:?}", image_key, start.elapsed());
         }
 
+        surface.set_stroke(Some(Stroke {
+            paint: rgb::Color::new(16, 16, 16).into(),
+            width: 0.5,
+            miter_limit: 0.0,
+            line_cap: Default::default(),
+            line_join: Default::default(),
+            opacity: NormalizedF32::new(1.0).unwrap(),
+            dash: None,
+        }));
+
+        let lines = match cut_lines {
+            CutLines::None => Vec::new(),
+            CutLines::Margins => calculate_margin_cutlines(page_size),
+            CutLines::FullPage => calculate_full_page_cutlines(page_size),
+        };
+
+        for line in &lines {
+            surface.draw_path(line);
+        }
+
         surface.finish();
         page.finish();
     }
 
     let pdf = document.finish().unwrap();
     Ok(pdf)
+}
+
+fn calculate_card_position(card_index: usize, page_size: &PageSize) -> (f32, f32) {
+    let (left_margin, top_margin) = page_size.margins();
+
+    let col = card_index % 3;
+    let row = card_index / 3;
+
+    let x = left_margin + (col as f32 * CARD_WIDTH);
+    let y = top_margin + (row as f32 * CARD_HEIGHT);
+
+    (x, y)
+}
+
+
+fn calculate_margin_cutlines(page_size: PageSize) -> Vec<Path> {
+    let (left_margin, top_margin) = page_size.margins();
+    let line_length: f32 = 15.0;
+    let line_gap: f32 = 3.0;
+
+    let mut lines = Vec::<Path>::new();
+
+    // top cut lines
+    for i in 0..4 {
+        lines.push({
+            let mut pb = PathBuilder::new();
+            pb.move_to(left_margin + (CARD_WIDTH*(i as f32)), top_margin-line_length-line_gap);
+            pb.line_to(left_margin+ (CARD_WIDTH*(i as f32)), top_margin-line_gap);
+            pb.finish().unwrap()
+        });
+    }
+
+    // bottom cut lines
+    for i in 0..4 {
+        lines.push({
+            let mut pb = PathBuilder::new();
+            pb.move_to(left_margin + (CARD_WIDTH*(i as f32)), top_margin+(CARD_HEIGHT*3.0)+line_length+line_gap);
+            pb.line_to(left_margin+ (CARD_WIDTH*(i as f32)), top_margin+(CARD_HEIGHT*3.0)+line_gap);
+            pb.finish().unwrap()
+        });
+    }
+
+    // left cut lines
+    for i in 0..4 {
+        lines.push({
+            let mut pb = PathBuilder::new();
+            pb.move_to(left_margin-line_length-line_gap, top_margin + (CARD_HEIGHT*(i as f32)));
+            pb.line_to(left_margin-line_gap, top_margin + (CARD_HEIGHT*(i as f32)));
+            pb.finish().unwrap()
+        });
+    }
+
+    // right cut lines
+    for i in 0..4 {
+        lines.push({
+            let mut pb = PathBuilder::new();
+            pb.move_to(left_margin+(CARD_WIDTH*3.0)+line_length+line_gap, top_margin + (CARD_HEIGHT*(i as f32)));
+            pb.line_to(left_margin+(CARD_WIDTH*3.0)+line_gap, top_margin + (CARD_HEIGHT*(i as f32)));
+            pb.finish().unwrap()
+        });
+    }
+
+    lines
+}
+
+fn calculate_full_page_cutlines(page_size: PageSize) -> Vec<Path>  {
+    let (left_margin, top_margin) = page_size.margins();
+    let (page_width, page_height) = page_size.dimensions();
+
+    let mut lines = Vec::<Path>::new();
+
+    for i in 0..3 {
+        lines.push({
+            let mut pb = PathBuilder::new();
+            pb.move_to(left_margin+CARD_WIDTH*(i as f32), 0.0);
+            pb.line_to(left_margin+CARD_WIDTH*(i as f32), page_height);
+            pb.finish().unwrap()
+        });
+    }
+
+    for i in 0..3 {
+        lines.push({
+            let mut pb = PathBuilder::new();
+            pb.move_to(0.0, top_margin+CARD_HEIGHT*(i as f32));
+            pb.line_to(page_width, top_margin+CARD_HEIGHT*(i as f32));
+            pb.finish().unwrap()
+        });
+    }
+
+    lines
 }

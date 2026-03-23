@@ -92,7 +92,7 @@ pub fn SourceSelector(props: SourceSelectorProps) -> Element {
                     textarea {
                         class: "flex-1 w-full p-3 border border-gray-300 rounded-md shadow-sm outline-none focus:ring-2 focus:ring-blue-400 resize-none font-mono text-sm",
                         placeholder: "Enter your card list here (e.g. 3x Sure Gamble)...",
-                        value: "{list_text}",
+                        initial_value: "{list_text}",
                         oninput: move |evt| {
                             list_text.set(evt.value());
                             source_state.set(ActiveSource::Cardlist(evt.value()));
@@ -121,7 +121,7 @@ pub fn SourceSelector(props: SourceSelectorProps) -> Element {
                         type: "text",
                         class: "w-full p-3 border border-gray-300 rounded-md shadow-sm outline-none focus:ring-2 focus:ring-blue-400 font-mono text-sm",
                         placeholder: "https://netrunnerdb.com/en/decklist/...",
-                        value: "{nrdb_url}",
+                        initial_value: "{nrdb_url}",
                         oninput: move |evt| {
                             props.on_source_changed.call(());
                             nrdb_url.set(evt.value());
