@@ -6,7 +6,7 @@ use proxynexus_core::collection_manager::CollectionManager;
 use proxynexus_core::db_storage::DbStorage;
 use proxynexus_core::image_provider::LocalImageProvider;
 use proxynexus_core::mpc::generate_mpc_zip;
-use proxynexus_core::pdf::{PageSize, generate_pdf, CutLines};
+use proxynexus_core::pdf::{PageSize, generate_pdf, CutLines, PdfOptions};
 use proxynexus_core::query::{generate_query_output, list_available_sets};
 use std::path::PathBuf;
 use tracing::info;
@@ -379,7 +379,15 @@ async fn handle_generate(
                 }
             };
 
-            let pdf_bytes = generate_pdf(printings, image_provider, page_size_enum, cut_lines_enum, None).await?;
+            let pdf_bytes = generate_pdf(
+                printings,
+                image_provider,
+                PdfOptions {
+                    page_size: page_size_enum,
+                    cut_lines: cut_lines_enum,
+                },
+                None,
+            ).await?;
 
             std::fs::write(&output_path, pdf_bytes)?;
             println!("PDF created successfully: {:?}", output_path);
