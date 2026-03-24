@@ -6,7 +6,7 @@ use proxynexus_core::collection_manager::CollectionManager;
 use proxynexus_core::db_storage::DbStorage;
 use proxynexus_core::image_provider::LocalImageProvider;
 use proxynexus_core::mpc::generate_mpc_zip;
-use proxynexus_core::pdf::{PageSize, generate_pdf};
+use proxynexus_core::pdf::{PageSize, generate_pdf, CutLines};
 use proxynexus_core::query::{generate_query_output, list_available_sets};
 use std::path::PathBuf;
 use tracing::info;
@@ -120,6 +120,12 @@ enum GenerateType {
 
         #[arg(long, default_value = "letter")]
         page_size: String,
+
+        #[arg(long, default_value = "margins")]
+        cut_lines: Option<String>,
+        //
+        // #[arg(long)]
+        // spacing: Option<String>,
     },
     #[command(group(
         clap::ArgGroup::new("input")
@@ -348,8 +354,11 @@ async fn handle_generate(
             nrdb_url,
             output_path,
             page_size,
+            cut_lines,
+            // spacing,
         } => {
             let page_size_enum = parse_page_size(&page_size)?;
+            let cut_lines_enum = parse_cut_lines(cut_lines.as_deref())?;
             let source = determine_input_source(cardlist, set_name, nrdb_url);
 
             let printings = match source {
@@ -370,7 +379,7 @@ async fn handle_generate(
                 }
             };
 
-            let pdf_bytes = generate_pdf(printings, image_provider, page_size_enum, None).await?;
+            let pdf_bytes = generate_pdf(printings, image_provider, page_size_enum, cut_lines_enum, None).await?;
 
             std::fs::write(&output_path, pdf_bytes)?;
             println!("PDF created successfully: {:?}", output_path);
@@ -448,6 +457,18 @@ fn parse_page_size(size: &str) -> Result<PageSize, String> {
         _ => Err(format!(
             "Unsupported page size: '{}'. Use 'letter' or 'a4'",
             size
+        )),
+    }
+}
+
+fn parse_cut_lines(cut_lines: Option<&str>) -> Result<CutLines, String> {
+    match cut_lines {
+        Some("none") =>  Ok(CutLines::None),
+        None | Some("margins") => Ok(CutLines::Margins),
+        Some("fullpage") => Ok(CutLines::FullPage),
+        Some(unsupported) => Err(format!(
+            "Unsupported cut lines option: '{}'. Options are 'none', 'margins', or 'fullpage'",
+            unsupported
         )),
     }
 }
