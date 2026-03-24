@@ -31,7 +31,7 @@ pub enum PageSize {
     #[default]
     Letter,
     A4,
-    // Custom(f32, f32),
+    Custom(f32, f32),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
@@ -61,25 +61,23 @@ impl PageSize {
         match self {
             PageSize::Letter => (LETTER_WIDTH, LETTER_HEIGHT),
             PageSize::A4 => (A4_WIDTH, A4_HEIGHT),
-            // PageSize::Custom(width, height) => (width * POINTS_PER_INCH, height * POINTS_PER_INCH),
+            PageSize::Custom(width, height) => (width * POINTS_PER_INCH, height * POINTS_PER_INCH),
         }
     }
 
     fn capacity(&self) -> (usize, usize) {
         let (page_width, page_height) = self.dimensions();
-        let max_cards_per_row =
-            ((page_width - (MINIMUM_MARGIN * 2.0)) / CARD_WIDTH).floor() as usize;
-        let max_cards_per_column =
-            ((page_height - (MINIMUM_MARGIN * 2.0)) / CARD_HEIGHT).floor() as usize;
-        (max_cards_per_column, max_cards_per_row)
+        let max_cols = ((page_width - (MINIMUM_MARGIN * 2.0)) / CARD_WIDTH).floor() as usize;
+        let max_rows = ((page_height - (MINIMUM_MARGIN * 2.0)) / CARD_HEIGHT).floor() as usize;
+        (max_rows, max_cols)
     }
 
     fn margins(&self) -> (f32, f32) {
         let (page_width, page_height) = self.dimensions();
-        let (max_cards_per_column, max_cards_per_row) = self.capacity();
+        let (max_rows, max_cols) = self.capacity();
 
-        let left_margin = (page_width - ((max_cards_per_column as f32) * CARD_WIDTH)) / 2.0;
-        let top_margin = (page_height - ((max_cards_per_row as f32) * CARD_HEIGHT)) / 2.0;
+        let left_margin = (page_width - ((max_cols as f32) * CARD_WIDTH)) / 2.0;
+        let top_margin = (page_height - ((max_rows as f32) * CARD_HEIGHT)) / 2.0;
 
         (left_margin, top_margin)
     }
@@ -106,8 +104,8 @@ pub async fn generate_pdf(
     let mut document = Document::new();
     let (page_width, page_height) = options.page_size.dimensions();
 
-    let (max_cards_per_column, max_cards_per_row) = options.page_size.capacity();
-    let max_cards_per_page = max_cards_per_column * max_cards_per_row;
+    let (max_rows, max_cols) = options.page_size.capacity();
+    let max_cards_per_page = max_rows * max_cols;
 
     for chunk in image_keys.chunks(max_cards_per_page) {
         let page_settings = PageSettings::from_wh(page_width, page_height).unwrap();
@@ -183,10 +181,11 @@ pub async fn generate_pdf(
 }
 
 fn calculate_card_position(card_index: usize, page_size: &PageSize) -> (f32, f32) {
+    let (_, max_cols) = page_size.capacity();
     let (left_margin, top_margin) = page_size.margins();
 
-    let col = card_index % 3;
-    let row = card_index / 3;
+    let col = card_index % max_cols;
+    let row = card_index / max_cols;
 
     let x = left_margin + (col as f32 * CARD_WIDTH);
     let y = top_margin + (row as f32 * CARD_HEIGHT);
@@ -195,6 +194,7 @@ fn calculate_card_position(card_index: usize, page_size: &PageSize) -> (f32, f32
 }
 
 fn calculate_margin_cutlines(page_size: PageSize) -> Vec<Path> {
+    let (max_rows, max_cols) = page_size.capacity();
     let (left_margin, top_margin) = page_size.margins();
     let line_length: f32 = 15.0;
     let line_gap: f32 = 3.0;
@@ -202,7 +202,7 @@ fn calculate_margin_cutlines(page_size: PageSize) -> Vec<Path> {
     let mut lines = Vec::<Path>::new();
 
     // top cut lines
-    for i in 0..4 {
+    for i in 0..=max_cols {
         lines.push({
             let mut pb = PathBuilder::new();
             pb.move_to(
@@ -218,23 +218,23 @@ fn calculate_margin_cutlines(page_size: PageSize) -> Vec<Path> {
     }
 
     // bottom cut lines
-    for i in 0..4 {
+    for i in 0..=max_cols {
         lines.push({
             let mut pb = PathBuilder::new();
             pb.move_to(
                 left_margin + (CARD_WIDTH * (i as f32)),
-                top_margin + (CARD_HEIGHT * 3.0) + line_length + line_gap,
+                top_margin + (CARD_HEIGHT * (max_rows as f32)) + line_length + line_gap,
             );
             pb.line_to(
                 left_margin + (CARD_WIDTH * (i as f32)),
-                top_margin + (CARD_HEIGHT * 3.0) + line_gap,
+                top_margin + (CARD_HEIGHT * (max_rows as f32)) + line_gap,
             );
             pb.finish().unwrap()
         });
     }
 
     // left cut lines
-    for i in 0..4 {
+    for i in 0..=max_rows {
         lines.push({
             let mut pb = PathBuilder::new();
             pb.move_to(
@@ -250,15 +250,15 @@ fn calculate_margin_cutlines(page_size: PageSize) -> Vec<Path> {
     }
 
     // right cut lines
-    for i in 0..4 {
+    for i in 0..=max_rows {
         lines.push({
             let mut pb = PathBuilder::new();
             pb.move_to(
-                left_margin + (CARD_WIDTH * 3.0) + line_length + line_gap,
+                left_margin + (CARD_WIDTH * (max_cols as f32)) + line_length + line_gap,
                 top_margin + (CARD_HEIGHT * (i as f32)),
             );
             pb.line_to(
-                left_margin + (CARD_WIDTH * 3.0) + line_gap,
+                left_margin + (CARD_WIDTH * (max_cols as f32)) + line_gap,
                 top_margin + (CARD_HEIGHT * (i as f32)),
             );
             pb.finish().unwrap()
@@ -269,12 +269,13 @@ fn calculate_margin_cutlines(page_size: PageSize) -> Vec<Path> {
 }
 
 fn calculate_full_page_cutlines(page_size: PageSize) -> Vec<Path> {
+    let (max_rows, max_cols) = page_size.capacity();
     let (left_margin, top_margin) = page_size.margins();
     let (page_width, page_height) = page_size.dimensions();
 
     let mut lines = Vec::<Path>::new();
 
-    for i in 0..4 {
+    for i in 0..=max_cols {
         lines.push({
             let mut pb = PathBuilder::new();
             pb.move_to(left_margin + CARD_WIDTH * (i as f32), 0.0);
@@ -283,7 +284,7 @@ fn calculate_full_page_cutlines(page_size: PageSize) -> Vec<Path> {
         });
     }
 
-    for i in 0..4 {
+    for i in 0..=max_rows {
         lines.push({
             let mut pb = PathBuilder::new();
             pb.move_to(0.0, top_margin + CARD_HEIGHT * (i as f32));
