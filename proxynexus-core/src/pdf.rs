@@ -9,6 +9,7 @@ use krilla::image::Image;
 use krilla::num::NormalizedF32;
 use krilla::page::PageSettings;
 use krilla::paint::Stroke;
+use serde::Serialize;
 use std::collections::HashMap;
 use tracing::info;
 use web_time::Instant;
@@ -25,7 +26,7 @@ const CARD_HEIGHT: f32 = 249.09; // 8.788 cm in points
 
 const MINIMUM_MARGIN: f32 = 0.25 * POINTS_PER_INCH;
 
-#[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default, Serialize)]
 pub enum PageSize {
     #[default]
     Letter,
@@ -33,10 +34,10 @@ pub enum PageSize {
     // Custom(f32, f32),
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
 pub enum CutLines {
-    #[default]
     None,
+    #[default]
     Margins,
     FullPage,
 }
@@ -48,6 +49,12 @@ pub enum CutLines {
 //     Margins,
 //     FullPage,
 // }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+pub struct PdfOptions {
+    pub page_size: PageSize,
+    pub cut_lines: CutLines,
+}
 
 impl PageSize {
     fn dimensions(&self) -> (f32, f32) {
@@ -81,9 +88,7 @@ impl PageSize {
 pub async fn generate_pdf(
     printings: Vec<Printing>,
     image_provider: &impl ImageProvider,
-    page_size: PageSize,
-    cut_lines: CutLines,
-    // spacing: Spacing,
+    options: PdfOptions,
     progress: Option<Box<dyn Fn(f32) + Send + Sync>>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let total_images: usize = printings.iter().map(|p| 1 + p.parts.len()).sum();
@@ -99,9 +104,9 @@ pub async fn generate_pdf(
 
     let mut image_cache: HashMap<String, Image> = HashMap::new();
     let mut document = Document::new();
-    let (page_width, page_height) = page_size.dimensions();
+    let (page_width, page_height) = options.page_size.dimensions();
 
-    let (max_cards_per_column, max_cards_per_row) = page_size.capacity();
+    let (max_cards_per_column, max_cards_per_row) = options.page_size.capacity();
     let max_cards_per_page = max_cards_per_column * max_cards_per_row;
 
     for chunk in image_keys.chunks(max_cards_per_page) {
@@ -128,7 +133,7 @@ pub async fn generate_pdf(
             let image = image_cache.get(image_key).unwrap().clone();
             let size = Size::from_wh(CARD_WIDTH, CARD_HEIGHT).unwrap();
 
-            let (pos_x, pos_y) = calculate_card_position(index, &page_size);
+            let (pos_x, pos_y) = calculate_card_position(index, &options.page_size);
 
             surface.push_transform(&Transform::from_translate(pos_x, pos_y));
             surface.draw_image(image, size);
@@ -159,10 +164,10 @@ pub async fn generate_pdf(
             dash: None,
         }));
 
-        let lines = match cut_lines {
+        let lines = match options.cut_lines {
             CutLines::None => Vec::new(),
-            CutLines::Margins => calculate_margin_cutlines(page_size),
-            CutLines::FullPage => calculate_full_page_cutlines(page_size),
+            CutLines::Margins => calculate_margin_cutlines(options.page_size),
+            CutLines::FullPage => calculate_full_page_cutlines(options.page_size),
         };
 
         for line in &lines {

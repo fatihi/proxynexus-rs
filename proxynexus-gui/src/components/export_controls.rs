@@ -1,9 +1,9 @@
 use dioxus::prelude::*;
-use proxynexus_core::pdf::PageSize;
+use proxynexus_core::pdf::{CutLines, PageSize, PdfOptions};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum ExportConfig {
-    Pdf(PageSize),
+    Pdf(PdfOptions),
     Mpc,
 }
 
@@ -17,6 +17,7 @@ pub struct ExportControlsProps {
 pub fn ExportControls(props: ExportControlsProps) -> Element {
     let mut export_format = use_signal(|| "pdf".to_string());
     let mut page_size = use_signal(PageSize::default);
+    let mut cut_lines = use_signal(CutLines::default);
 
     rsx! {
         div {
@@ -58,6 +59,29 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                         option { value: "A4", "A4" }
                     }
                 }
+                div { class: "flex flex-col gap-2",
+                    label { class: "text-sm font-medium text-gray-700", "Cut Lines" }
+                    select {
+                        disabled: (props.progress)().is_some(),
+                        class: "w-full p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-400 bg-white text-sm",
+                        value: match cut_lines() {
+                            CutLines::None => "None",
+                            CutLines::Margins => "Margins",
+                            CutLines::FullPage => "FullPage",
+                        },
+                        onchange: move |evt| {
+                            let selected = match evt.value().as_str() {
+                                "None" => CutLines::None,
+                                "FullPage" => CutLines::FullPage,
+                                _ => CutLines::Margins,
+                            };
+                            cut_lines.set(selected);
+                        },
+                        option { value: "None", "None" }
+                        option { value: "Margins", "Margins" }
+                        option { value: "FullPage", "Fullpage" }
+                    }
+                }
             }
 
             if let Some(p) = (props.progress)() {
@@ -78,7 +102,10 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                     onclick: move |_| {
                         let config = match export_format().as_str() {
                             "mpc" => ExportConfig::Mpc,
-                            _ => ExportConfig::Pdf(page_size()),
+                            _ => ExportConfig::Pdf(PdfOptions {
+                                page_size: page_size(),
+                                cut_lines: cut_lines(),
+                            }),
                         };
                         props.on_generate.call(config);
                     },

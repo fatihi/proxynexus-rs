@@ -1,3 +1,4 @@
+use proxynexus_core::pdf::PdfOptions;
 use serde::Serialize;
 use serde_json::json;
 use std::sync::{Mutex, OnceLock};
@@ -13,7 +14,7 @@ static DISTINCT_ID: OnceLock<String> = OnceLock::new();
 #[derive(Serialize)]
 pub struct GenerationReport {
     pub format: String,
-    pub page_size: String,
+    pub options: Option<PdfOptions>,
     pub runtime_ms: u128,
     pub success: bool,
     pub source_type: &'static str,
@@ -85,7 +86,7 @@ pub fn send_report(report: GenerationReport) {
             "app_version": env!("CARGO_PKG_VERSION"),
             "platform": if cfg!(target_arch = "wasm32") { "web" } else { "desktop" },
             "format": report.format,
-            "page_size": report.page_size,
+            "options": report.options,
             "runtime_ms": report.runtime_ms,
             "success": report.success,
             "source_type": report.source_type,

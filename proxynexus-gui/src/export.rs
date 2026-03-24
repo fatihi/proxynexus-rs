@@ -5,8 +5,9 @@ use dioxus::prelude::*;
 use proxynexus_core::card_source::{CardSource, Cardlist, NrdbUrl, SetName};
 use proxynexus_core::db_storage::DbStorage;
 use proxynexus_core::mpc::generate_mpc_zip;
-use proxynexus_core::pdf::{CutLines, generate_pdf};
+use proxynexus_core::pdf::generate_pdf;
 use proxynexus_core::query::apply_variant_overrides;
+use proxynexus_core::pdf::PdfOptions;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -15,7 +16,7 @@ use web_time::Instant;
 
 struct ExportMeta {
     format: &'static str,
-    page_size: String,
+    options: Option<PdfOptions>,
     filename: &'static str,
     filter: &'static str,
     ext: &'static str,
@@ -64,18 +65,20 @@ pub async fn run_export(
     #[cfg(target_arch = "wasm32")]
     let provider = proxynexus_core::image_provider::RemoteImageProvider;
 
-    let meta = match config {
-        ExportConfig::Pdf(page_size) => ExportMeta {
-            format: "pdf",
-            page_size: format!("{:?}", page_size),
-            filename: "proxynexus_export.pdf",
-            filter: "PDF Document",
-            ext: "pdf",
-            mime: "application/pdf",
+    let meta = match config.clone() {
+        ExportConfig::Pdf(options) => {
+            ExportMeta {
+                format: "pdf",
+                options: Some(options),
+                filename: "proxynexus_export.pdf",
+                filter: "PDF Document",
+                ext: "pdf",
+                mime: "application/pdf",
+            }
         },
         ExportConfig::Mpc => ExportMeta {
             format: "mpc",
-            page_size: "N/A".to_string(),
+            options: None,
             filename: "proxynexus_export.zip",
             filter: "ZIP Archive",
             ext: "zip",
@@ -165,12 +168,11 @@ pub async fn run_export(
 
     let result = match resolved_printings {
         Ok(printings) => match config {
-            ExportConfig::Pdf(page_size) => {
+            ExportConfig::Pdf(options) => {
                 generate_pdf(
                     printings,
                     &provider,
-                    page_size,
-                    CutLines::FullPage,
+                    options,
                     progress_callback,
                 )
                 .await
@@ -213,7 +215,7 @@ pub async fn run_export(
 
     analytics::send_report(analytics::GenerationReport {
         format: meta.format.to_string(),
-        page_size: meta.page_size,
+        options: meta.options,
         runtime_ms: start_time.elapsed().as_millis(),
         success,
         source_type,
