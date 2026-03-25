@@ -6,7 +6,7 @@ use proxynexus_core::collection_manager::CollectionManager;
 use proxynexus_core::db_storage::DbStorage;
 use proxynexus_core::image_provider::LocalImageProvider;
 use proxynexus_core::mpc::generate_mpc_zip;
-use proxynexus_core::pdf::{PageSize, generate_pdf, CutLines, PdfOptions};
+use proxynexus_core::pdf::{CutLines, PageSize, PdfOptions, generate_pdf};
 use proxynexus_core::query::{generate_query_output, list_available_sets};
 use std::path::PathBuf;
 use tracing::info;
@@ -387,7 +387,8 @@ async fn handle_generate(
                     cut_lines: cut_lines_enum,
                 },
                 None,
-            ).await?;
+            )
+            .await?;
 
             std::fs::write(&output_path, pdf_bytes)?;
             println!("PDF created successfully: {:?}", output_path);
@@ -471,7 +472,7 @@ fn parse_page_size(size: &str) -> Result<PageSize, String> {
 
 fn parse_cut_lines(cut_lines: Option<&str>) -> Result<CutLines, String> {
     match cut_lines {
-        Some("none") =>  Ok(CutLines::None),
+        Some("none") => Ok(CutLines::None),
         None | Some("margins") => Ok(CutLines::Margins),
         Some("fullpage") => Ok(CutLines::FullPage),
         Some(unsupported) => Err(format!(
