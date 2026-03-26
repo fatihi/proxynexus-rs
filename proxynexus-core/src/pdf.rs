@@ -34,6 +34,16 @@ pub enum PageSize {
     Custom(f32, f32),
 }
 
+impl PageSize {
+    fn dimensions(&self) -> (f32, f32) {
+        match self {
+            PageSize::Letter => (LETTER_WIDTH, LETTER_HEIGHT),
+            PageSize::A4 => (A4_WIDTH, A4_HEIGHT),
+            PageSize::Custom(width, height) => (width * POINTS_PER_INCH, height * POINTS_PER_INCH),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
 pub enum CutLines {
     None,
@@ -67,18 +77,10 @@ pub struct PdfOptions {
     pub spacing: Spacing,
 }
 
-impl PageSize {
-    fn dimensions(&self) -> (f32, f32) {
-        match self {
-            PageSize::Letter => (LETTER_WIDTH, LETTER_HEIGHT),
-            PageSize::A4 => (A4_WIDTH, A4_HEIGHT),
-            PageSize::Custom(width, height) => (width * POINTS_PER_INCH, height * POINTS_PER_INCH),
-        }
-    }
-
-    fn capacity(&self, spacing: Spacing) -> (usize, usize) {
-        let (page_width, page_height) = self.dimensions();
-        let gap = spacing.points();
+impl PdfOptions {
+    fn capacity(&self) -> (usize, usize) {
+        let (page_width, page_height) = self.page_size.dimensions();
+        let gap = self.spacing.points();
         let max_cols =
             ((page_width - (MINIMUM_MARGIN * 2.0) + gap) / (CARD_WIDTH + gap)).floor() as usize;
         let max_rows =
@@ -86,10 +88,10 @@ impl PageSize {
         (max_rows, max_cols)
     }
 
-    fn margins(&self, spacing: Spacing) -> (f32, f32) {
-        let (page_width, page_height) = self.dimensions();
-        let (max_rows, max_cols) = self.capacity(spacing);
-        let gap = spacing.points();
+    fn margins(&self) -> (f32, f32) {
+        let (page_width, page_height) = self.page_size.dimensions();
+        let (max_rows, max_cols) = self.capacity();
+        let gap = self.spacing.points();
 
         let left_margin =
             (page_width - (max_cols as f32 * CARD_WIDTH + (max_cols as f32 - 1.0) * gap)) / 2.0;
@@ -121,7 +123,7 @@ pub async fn generate_pdf(
     let mut document = Document::new();
     let (page_width, page_height) = options.page_size.dimensions();
 
-    let (max_rows, max_cols) = options.page_size.capacity(options.spacing);
+    let (max_rows, max_cols) = options.capacity();
     let max_cards_per_page = max_rows * max_cols;
 
     for chunk in image_keys.chunks(max_cards_per_page) {
@@ -148,8 +150,7 @@ pub async fn generate_pdf(
             let image = image_cache.get(image_key).unwrap().clone();
             let size = Size::from_wh(CARD_WIDTH, CARD_HEIGHT).unwrap();
 
-            let (pos_x, pos_y) =
-                calculate_card_position(index, &options.page_size, options.spacing);
+            let (pos_x, pos_y) = calculate_card_position(index, &options);
 
             surface.push_transform(&Transform::from_translate(pos_x, pos_y));
             surface.draw_image(image, size);
@@ -182,8 +183,8 @@ pub async fn generate_pdf(
 
         let lines = match options.cut_lines {
             CutLines::None => Vec::new(),
-            CutLines::Margins => calculate_margin_cutlines(options.page_size, options.spacing),
-            CutLines::FullPage => calculate_full_page_cutlines(options.page_size, options.spacing),
+            CutLines::Margins => calculate_margin_cutlines(&options),
+            CutLines::FullPage => calculate_full_page_cutlines(&options),
         };
 
         for line in &lines {
@@ -198,14 +199,10 @@ pub async fn generate_pdf(
     Ok(pdf)
 }
 
-fn calculate_card_position(
-    card_index: usize,
-    page_size: &PageSize,
-    spacing: Spacing,
-) -> (f32, f32) {
-    let (_, max_cols) = page_size.capacity(spacing);
-    let (left_margin, top_margin) = page_size.margins(spacing);
-    let gap = spacing.points();
+fn calculate_card_position(card_index: usize, options: &PdfOptions) -> (f32, f32) {
+    let (_, max_cols) = options.capacity();
+    let (left_margin, top_margin) = options.margins();
+    let gap = options.spacing.points();
 
     let col = (card_index % max_cols) as f32;
     let row = (card_index / max_cols) as f32;
@@ -216,10 +213,10 @@ fn calculate_card_position(
     (x, y)
 }
 
-fn calculate_margin_cutlines(page_size: PageSize, spacing: Spacing) -> Vec<Path> {
-    let (max_rows, max_cols) = page_size.capacity(spacing);
-    let (left_margin, top_margin) = page_size.margins(spacing);
-    let gap = spacing.points();
+fn calculate_margin_cutlines(options: &PdfOptions) -> Vec<Path> {
+    let (max_rows, max_cols) = options.capacity();
+    let (left_margin, top_margin) = options.margins();
+    let gap = options.spacing.points();
     let line_length: f32 = 15.0;
     let line_gap: f32 = 3.0;
 
@@ -319,11 +316,11 @@ fn calculate_margin_cutlines(page_size: PageSize, spacing: Spacing) -> Vec<Path>
     lines
 }
 
-fn calculate_full_page_cutlines(page_size: PageSize, spacing: Spacing) -> Vec<Path> {
-    let (max_rows, max_cols) = page_size.capacity(spacing);
-    let (left_margin, top_margin) = page_size.margins(spacing);
-    let (page_width, page_height) = page_size.dimensions();
-    let gap = spacing.points();
+fn calculate_full_page_cutlines(options: &PdfOptions) -> Vec<Path> {
+    let (max_rows, max_cols) = options.capacity();
+    let (left_margin, top_margin) = options.margins();
+    let (page_width, page_height) = options.page_size.dimensions();
+    let gap = options.spacing.points();
 
     let mut lines = Vec::<Path>::new();
 
