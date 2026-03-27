@@ -123,9 +123,9 @@ enum GenerateType {
 
         #[arg(long, default_value = "margins")]
         cut_lines: Option<String>,
-        //
-        // #[arg(long)]
-        // spacing: Option<String>,
+
+        #[arg(long, default_value = "edge-to-edge")]
+        print_layout: String,
     },
     #[command(group(
         clap::ArgGroup::new("input")
@@ -355,10 +355,11 @@ async fn handle_generate(
             output_path,
             page_size,
             cut_lines,
-            // spacing,
+            print_layout,
         } => {
             let page_size_enum = parse_page_size(&page_size)?;
             let cut_lines_enum = parse_cut_lines(cut_lines.as_deref())?;
+            let print_layout_enum = parse_print_layout(&print_layout)?;
             let source = determine_input_source(cardlist, set_name, nrdb_url);
 
             let printings = match source {
@@ -385,6 +386,7 @@ async fn handle_generate(
                 PdfOptions {
                     page_size: page_size_enum,
                     cut_lines: cut_lines_enum,
+                    print_layout: print_layout_enum,
                 },
                 None,
             )
@@ -478,6 +480,20 @@ fn parse_cut_lines(cut_lines: Option<&str>) -> Result<CutLines, String> {
         Some(unsupported) => Err(format!(
             "Unsupported cut lines option: '{}'. Options are 'none', 'margins', or 'fullpage'",
             unsupported
+        )),
+    }
+}
+
+fn parse_print_layout(layout: &str) -> Result<proxynexus_core::pdf::PrintLayout, String> {
+    match layout {
+        "edge-to-edge" => Ok(proxynexus_core::pdf::PrintLayout::EdgeToEdge),
+        "small-margin" => Ok(proxynexus_core::pdf::PrintLayout::SmallMargin),
+        "large-margin" => Ok(proxynexus_core::pdf::PrintLayout::LargeMargin),
+        "narrow-gap" => Ok(proxynexus_core::pdf::PrintLayout::NarrowGap),
+        "wide-gap" => Ok(proxynexus_core::pdf::PrintLayout::WideGap),
+        _ => Err(format!(
+            "Unsupported print layout: '{}'. Options are 'edge-to-edge', 'small-margin', 'large-margin', 'narrow-gap', 'wide-gap'",
+            layout
         )),
     }
 }
