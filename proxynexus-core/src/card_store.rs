@@ -53,7 +53,7 @@ struct AvailablePrintingRow {
 }
 
 pub fn normalize_title(title: &str) -> String {
-    title
+    deunicode::deunicode(title)
         .to_lowercase()
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
