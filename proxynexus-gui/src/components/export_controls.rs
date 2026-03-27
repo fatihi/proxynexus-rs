@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use proxynexus_core::pdf::{CutLines, PageSize, PdfOptions};
+use proxynexus_core::pdf::{CutLines, PageSize, PdfOptions, PrintLayout};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum ExportConfig {
@@ -25,6 +25,7 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
     let mut export_format = use_signal(|| "pdf".to_string());
     let mut page_size_preset = use_signal(|| "Letter".to_string());
     let mut cut_lines = use_signal(CutLines::default);
+    let mut print_layout = use_signal(PrintLayout::default);
 
     let mut custom_width = use_signal(|| "".to_string());
     let mut custom_height = use_signal(|| "".to_string());
@@ -175,6 +176,37 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                         option { value: "FullPage", "Full Page" }
                     }
                 }
+
+                div { class: "flex flex-col gap-2",
+                    label { class: "text-sm font-medium text-gray-700", "Print Style" }
+                    select {
+                        disabled: (props.progress)().is_some(),
+                        class: "w-full p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-400 bg-white text-sm",
+                        value: match print_layout() {
+                            PrintLayout::EdgeToEdge => "EdgeToEdge",
+                            PrintLayout::SmallMargin => "SmallMargin",
+                            PrintLayout::LargeMargin => "LargeMargin",
+                            PrintLayout::NarrowGap => "NarrowGap",
+                            PrintLayout::WideGap => "WideGap",
+                        },
+                        onchange: move |evt| {
+                            let selected = match evt.value().as_str() {
+                                "EdgeToEdge" => PrintLayout::EdgeToEdge,
+                                "SmallMargin" => PrintLayout::SmallMargin,
+                                "LargeMargin" => PrintLayout::LargeMargin,
+                                "NarrowGap" => PrintLayout::NarrowGap,
+                                "WideGap" => PrintLayout::WideGap,
+                                _ => PrintLayout::EdgeToEdge,
+                            };
+                            print_layout.set(selected);
+                        },
+                        option { value: "EdgeToEdge", "Edge-to-Edge" }
+                        option { value: "SmallMargin", "Small Margin" }
+                        option { value: "LargeMargin", "Large Margin" }
+                        option { value: "NarrowGap", "Narrow Gap" }
+                        option { value: "WideGap", "Wide Gap" }
+                    }
+                }
             }
 
             if let Some(p) = (props.progress)() {
@@ -199,6 +231,7 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                                 Some(page_size) => ExportConfig::Pdf(PdfOptions {
                                     page_size,
                                     cut_lines: cut_lines(),
+                                    print_layout: print_layout(),
                                 }),
                                 None => return,
                             }
