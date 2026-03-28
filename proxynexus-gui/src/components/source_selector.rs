@@ -1,3 +1,4 @@
+use crate::components::card_list_input::CardListInput;
 use dioxus::prelude::*;
 use proxynexus_core::card_store::CardStore;
 use proxynexus_core::db_storage::DbStorage;
@@ -46,6 +47,14 @@ pub fn SourceSelector(props: SourceSelectorProps) -> Element {
         }
     });
 
+    let all_cards = use_resource(move || async move {
+        let mut db = db_signal.write();
+        match CardStore::new(&mut db) {
+            Ok(mut store) => store.get_all_card_names().await.ok(),
+            Err(_) => None,
+        }
+    });
+
     rsx! {
         div {
             class: "flex flex-col flex-1 p-4 w-full",
@@ -89,13 +98,12 @@ pub fn SourceSelector(props: SourceSelectorProps) -> Element {
 
             match tab() {
                 "list" => rsx! {
-                    textarea {
-                        class: "flex-1 w-full p-3 border border-gray-300 rounded-md shadow-sm outline-none focus:ring-2 focus:ring-blue-400 resize-none font-mono text-sm",
-                        placeholder: "Enter your card list here (e.g. 3x Sure Gamble)...",
-                        initial_value: "{list_text}",
-                        oninput: move |evt| {
-                            list_text.set(evt.value());
-                            source_state.set(ActiveSource::Cardlist(evt.value()));
+                    CardListInput {
+                        all_cards,
+                        list_text: list_text,
+                        oninput: move |text: String| {
+                            list_text.set(text.clone());
+                            source_state.set(ActiveSource::Cardlist(text));
                         }
                     }
                 },

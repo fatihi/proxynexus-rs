@@ -40,6 +40,11 @@ struct CardRow {
 }
 
 #[derive(FromGlueRow)]
+struct CardTitleRow {
+    title: String,
+}
+
+#[derive(FromGlueRow)]
 struct AvailablePrintingRow {
     title: String,
     code: String,
@@ -104,6 +109,22 @@ impl<'a> CardStore<'a> {
         Ok(Self { db })
     }
 
+    pub async fn get_all_card_names(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let query = "SELECT DISTINCT title FROM cards ORDER BY title";
+        let payloads = self.db.execute(query).await?;
+        let mut names = Vec::new();
+
+        if let Some(payload) = payloads.into_iter().next() {
+            names = payload
+                .rows_as::<CardTitleRow>()?
+                .into_iter()
+                .map(|row| row.title)
+                .collect();
+        }
+
+        Ok(names)
+    }
+
     async fn parse_cardlist_into_card_requests(
         &mut self,
         text: &str,
@@ -154,7 +175,7 @@ impl<'a> CardStore<'a> {
         Ok((requests, not_found))
     }
 
-    fn parse_quantity(line: &str) -> (u32, &str) {
+    pub fn parse_quantity(line: &str) -> (u32, &str) {
         if let Some((qty_str, card_name)) = line
             .split_once("x ")
             .filter(|(qty_str, _)| qty_str.chars().all(|c| c.is_ascii_digit()))
@@ -173,7 +194,7 @@ impl<'a> CardStore<'a> {
         }
     }
 
-    fn parse_overrides(text: &str) -> Result<CardOverride<'_>, Box<dyn std::error::Error>> {
+    pub fn parse_overrides(text: &str) -> Result<CardOverride<'_>, Box<dyn std::error::Error>> {
         if let Some(bracket_start) = text.find('[') {
             let name = text[..bracket_start].trim();
             let bracket_end = text.find(']').ok_or("Unclosed bracket in card override")?;
