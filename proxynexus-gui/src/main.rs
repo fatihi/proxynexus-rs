@@ -383,6 +383,11 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
         rsx! { "" }
     };
 
+    let is_generate_disabled = match ordered_printings.read().as_ref() {
+        Some(Ok((_, applied, _))) => applied.is_empty(),
+        _ => true,
+    };
+
     rsx! {
         div {
             class: "absolute inset-0 flex overflow-hidden select-none bg-gray-50",
@@ -445,6 +450,7 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
                 }
                 ExportControls {
                     progress,
+                    is_disabled: is_generate_disabled,
                     on_generate: move |config: components::export_controls::ExportConfig| {
                         let source = active_source();
                         spawn(export::run_export(

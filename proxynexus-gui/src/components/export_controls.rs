@@ -10,6 +10,7 @@ pub enum ExportConfig {
 #[derive(Props, Clone, PartialEq)]
 pub struct ExportControlsProps {
     pub progress: Signal<Option<f32>>,
+    pub is_disabled: bool,
     pub on_generate: EventHandler<ExportConfig>,
 }
 
@@ -223,8 +224,14 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                 }
             } else {
                 button {
-                    class: "w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-md shadow-sm transition-colors mt-2",
+                    class: if props.is_disabled {
+                        "w-full py-2 px-4 bg-gray-300 text-gray-500 font-semibold rounded-md shadow-sm mt-2 cursor-not-allowed"
+                    } else {
+                        "w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-md shadow-sm transition-colors mt-2"
+                    },
+                    disabled: props.is_disabled,
                     onclick: move |_| {
+                        if props.is_disabled { return; }
                         let config = match export_format().as_str() {
                             "mpc" => ExportConfig::Mpc,
                             _ => match page_size_validation().result {
