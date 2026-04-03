@@ -143,7 +143,7 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
 
     rsx! {
         div {
-            class: "p-4 border-t border-gray-200 bg-gray-50 flex flex-col gap-4",
+            class: "h-[480px] flex-shrink-0 p-4 border-t border-gray-200 bg-gray-50 flex flex-col gap-4 overflow-y-auto",
 
             div { class: "flex flex-col gap-2",
                 label { class: "text-sm font-medium text-gray-700", "Format" }
@@ -268,7 +268,7 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
             }
 
             if let Some(p) = (props.progress)() {
-                div { class: "flex flex-col gap-2 mt-2",
+                div { class: "mt-auto flex flex-col gap-2",
                     div { class: "w-full bg-gray-200 rounded-full h-4 overflow-hidden",
                         div {
                             class: "bg-blue-600 h-full transition-all duration-75",
@@ -280,34 +280,37 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                     }
                 }
             } else {
-                {
-                    let btn_base = "w-full py-2 px-4 font-semibold rounded-md shadow-sm transition-colors mt-2 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1";
-                    let btn_state = if props.is_disabled {
-                        "bg-gray-300 text-gray-500 cursor-not-allowed"
-                    } else {
-                        "bg-blue-600 hover:bg-blue-700 text-white"
-                    };
+                div {
+                    class: "mt-auto",
+                    {
+                        let btn_base = "w-full py-2 px-4 font-semibold rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1";
+                        let btn_state = if props.is_disabled {
+                            "bg-gray-300 text-gray-500 cursor-not-allowed"
+                        } else {
+                            "bg-blue-600 hover:bg-blue-700 text-white"
+                        };
 
-                    rsx! {
-                        button {
-                            class: "{btn_base} {btn_state}",
-                            disabled: props.is_disabled,
-                            onclick: move |_| {
-                                if props.is_disabled { return; }
-                                let config = match export_format() {
-                                    ExportFormat::Mpc => ExportConfig::Mpc,
-                                    ExportFormat::Pdf => match validation.result {
-                                        Some(page_size) => ExportConfig::Pdf(PdfOptions {
-                                            page_size,
-                                            cut_lines: cut_lines(),
-                                            print_layout: print_layout(),
-                                        }),
-                                        None => return,
-                                    }
-                                };
-                                props.on_generate.call(config);
-                            },
-                            "Generate"
+                        rsx! {
+                            button {
+                                class: "{btn_base} {btn_state}",
+                                disabled: props.is_disabled,
+                                onclick: move |_| {
+                                    if props.is_disabled { return; }
+                                    let config = match export_format() {
+                                        ExportFormat::Mpc => ExportConfig::Mpc,
+                                        ExportFormat::Pdf => match validation.result {
+                                            Some(page_size) => ExportConfig::Pdf(PdfOptions {
+                                                page_size,
+                                                cut_lines: cut_lines(),
+                                                print_layout: print_layout(),
+                                            }),
+                                            None => return,
+                                        }
+                                    };
+                                    props.on_generate.call(config);
+                                },
+                                "Generate"
+                            }
                         }
                     }
                 }

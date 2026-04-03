@@ -242,6 +242,9 @@
   .mt-2 {
     margin-top: calc(var(--spacing) * 2);
   }
+  .mt-auto {
+    margin-top: auto;
+  }
   .-mb-\[1px\] {
     margin-bottom: calc(1px * -1);
   }
@@ -271,6 +274,9 @@
   }
   .h-\[38px\] {
     height: 38px;
+  }
+  .h-\[480px\] {
+    height: 480px;
   }
   .h-full {
     height: 100%;
