@@ -12,5 +12,5 @@ pub mod models;
 pub mod mpc;
 pub mod netrunnerdb;
 pub mod pdf;
-mod print_prep;
+pub mod print_prep;
 pub mod query;

@@ -145,6 +145,10 @@ enum GenerateType {
         #[arg(short, long, default_value = "output.zip")]
         output_path: PathBuf,
     },
+    Bleed {
+        #[arg(short, long)]
+        input_dir: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -429,6 +433,39 @@ async fn handle_generate(
             std::fs::write(&output_path, mpc_bytes)?;
             info!("runtime: {:?}", start.elapsed());
             println!("MPC ZIP created successfully: {:?}", output_path);
+            Ok(())
+        }
+        GenerateType::Bleed { input_dir } => {
+            let output_dir = input_dir.join("bleeds");
+            std::fs::create_dir_all(&output_dir)?;
+            let mut count = 0;
+            for entry in std::fs::read_dir(&input_dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_file() {
+                    let ext = path
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    if (ext == "png" || ext == "jpg" || ext == "jpeg")
+                        && let Ok(img) = image::open(&path)
+                    {
+                        let bordered = proxynexus_core::print_prep::add_bleed_border(&img);
+                        if let Ok(encoded) = proxynexus_core::print_prep::encode_image(
+                            bordered,
+                            image::ImageFormat::Png,
+                        ) {
+                            let file_name = path.file_name().unwrap();
+                            let out_path = output_dir.join(file_name).with_extension("png");
+                            std::fs::write(&out_path, encoded)?;
+                            println!("Processed {:?}", path);
+                            count += 1;
+                        }
+                    }
+                }
+            }
+            println!("Bleed generation complete. Processed {} images.", count);
             Ok(())
         }
     }
