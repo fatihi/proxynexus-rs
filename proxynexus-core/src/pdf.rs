@@ -25,7 +25,7 @@ const A4_HEIGHT: f32 = 11.69 * POINTS_PER_INCH; // ~842 points
 const CARD_WIDTH: f32 = 178.54; // 6.299 cm in points
 const CARD_HEIGHT: f32 = 249.09; // 8.788 cm in points
 
-const MINIMUM_MARGIN: f32 = 0.125 * POINTS_PER_INCH;
+const MINIMUM_MARGIN: f32 = 0.25 * POINTS_PER_INCH;
 
 #[derive(Clone, Copy, PartialEq, Debug, Default, Serialize)]
 pub enum PageSize {
@@ -57,17 +57,15 @@ pub enum CutLines {
 pub enum PrintLayout {
     #[default]
     EdgeToEdge,
+    Gap,
     SmallMargin,
     LargeMargin,
-    NarrowGap,
-    WideGap,
 }
 
 impl PrintLayout {
     fn gap_points(&self) -> f32 {
         match self {
-            PrintLayout::NarrowGap => 0.125 * POINTS_PER_INCH,
-            PrintLayout::WideGap => 0.25 * POINTS_PER_INCH,
+            PrintLayout::Gap => 0.125 * POINTS_PER_INCH,
             _ => 0.0,
         }
     }

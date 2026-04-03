@@ -252,16 +252,15 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                 }
 
                 div { class: "flex flex-col gap-2",
-                    label { class: "text-sm font-medium text-gray-700", "Print Style" }
+                    label { class: "text-sm font-medium text-gray-700", "Print Layout" }
                     SegmentedControl {
                         value: print_layout(),
                         disabled: is_generating,
                         options: vec![
-                            (PrintLayout::EdgeToEdge, "Edge-to-Edge"),
-                            (PrintLayout::SmallMargin, "Small Margin"),
-                            (PrintLayout::LargeMargin, "Large Margin"),
-                            (PrintLayout::NarrowGap, "Narrow Gap"),
-                            (PrintLayout::WideGap, "Wide Gap"),
+                            (PrintLayout::EdgeToEdge, "Edge"),
+                            (PrintLayout::Gap, "Gap"),
+                            (PrintLayout::SmallMargin, "S Margin"),
+                            (PrintLayout::LargeMargin, "L Margin"),
                         ],
                         on_change: move |v| print_layout.set(v)
                     }

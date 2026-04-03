@@ -526,10 +526,9 @@ fn parse_print_layout(layout: &str) -> Result<proxynexus_core::pdf::PrintLayout,
         "edge-to-edge" => Ok(proxynexus_core::pdf::PrintLayout::EdgeToEdge),
         "small-margin" => Ok(proxynexus_core::pdf::PrintLayout::SmallMargin),
         "large-margin" => Ok(proxynexus_core::pdf::PrintLayout::LargeMargin),
-        "narrow-gap" => Ok(proxynexus_core::pdf::PrintLayout::NarrowGap),
-        "wide-gap" => Ok(proxynexus_core::pdf::PrintLayout::WideGap),
+        "gap" => Ok(proxynexus_core::pdf::PrintLayout::Gap),
         _ => Err(format!(
-            "Unsupported print layout: '{}'. Options are 'edge-to-edge', 'small-margin', 'large-margin', 'narrow-gap', 'wide-gap'",
+            "Unsupported print layout: '{}'. Options are 'edge-to-edge', 'small-margin', 'large-margin', 'gap'",
             layout
         )),
     }
