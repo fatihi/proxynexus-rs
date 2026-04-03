@@ -1,6 +1,6 @@
-use crate::border_generator::{apply_uniqueness_marker, create_bordered_base, encode_image};
 use crate::image_provider::ImageProvider;
 use crate::models::Printing;
+use crate::print_prep;
 use image::ImageFormat;
 use std::collections::HashMap;
 use std::io::{Cursor, Seek, Write};
@@ -92,14 +92,14 @@ async fn process_side<W: Write + Seek>(
                 let data = image_provider.get_image_bytes(&current_image_key).await?;
                 let image_format = image::guess_format(&data).unwrap_or(ImageFormat::Jpeg);
                 let img = image::load_from_memory(&data)?;
-                let bordered_base = create_bordered_base(&img);
-                image_cache.insert(current_image_key.clone(), (bordered_base, image_format));
+                let bleed_image = print_prep::add_bleed_border(&img);
+                image_cache.insert(current_image_key.clone(), (bleed_image, image_format));
             }
 
-            let (bordered_base, image_format) = image_cache.get(&current_image_key).unwrap();
-            let mut final_image = bordered_base.clone();
-            apply_uniqueness_marker(&mut final_image, uniqueness_counter);
-            let bordered_bytes = encode_image(final_image, *image_format)?;
+            let (bleed_image, image_format) = image_cache.get(&current_image_key).unwrap();
+            let mut final_image = bleed_image.clone();
+            print_prep::apply_uniqueness_marker(&mut final_image, uniqueness_counter);
+            let bordered_bytes = print_prep::encode_image(final_image, *image_format)?;
 
             let ext = if *image_format == ImageFormat::Png {
                 "png"

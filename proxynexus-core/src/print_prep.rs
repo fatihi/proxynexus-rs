@@ -1,40 +1,57 @@
-use image::{DynamicImage, GenericImageView, ImageFormat, RgbImage};
+use image::{DynamicImage, GenericImageView, ImageFormat, RgbImage, imageops::FilterType};
+
+const CUT_WIDTH: f32 = 744.0;
+const CUT_HEIGHT: f32 = 1038.0;
+const BLEED_WIDTH: f32 = 816.0;
+const BLEED_HEIGHT: f32 = 1110.0;
 
 #[derive(Debug, Clone)]
-struct BorderConfig {
+struct BleedConfig {
     output_width: u32,
     output_height: u32,
-    border_size: u32,
+    bleed_x: u32,
+    bleed_y: u32,
 }
 
-impl BorderConfig {
-    /// Calculate border parameters dynamically based on input image dimensions
-    /// MPC requires 36px bleed per side at 300 DPI (744px width baseline)
+impl BleedConfig {
+    /// Calculate dimensions and bleed size based on the longest side of the input image.
     /// Scales proportionally for any resolution
-    fn from_image_dimensions(width: u32, height: u32) -> Self {
-        let dpi_scale = width as f32 / 744.0;
-        let border_size = (36.0 * dpi_scale).round() as u32;
+    fn calculate(width: u32, height: u32) -> Self {
+        let scale = (width as f32 / CUT_WIDTH).max(height as f32 / CUT_HEIGHT);
+        let output_width = (BLEED_WIDTH * scale).round() as u32;
+        let output_height = (BLEED_HEIGHT * scale).round() as u32;
 
         Self {
-            output_width: width + (border_size * 2),
-            output_height: height + (border_size * 2),
-            border_size,
+            output_width,
+            output_height,
+            bleed_x: (output_width - width) / 2,
+            bleed_y: (output_height - height) / 2,
         }
     }
 }
 
-pub fn create_bordered_base(img: &DynamicImage) -> RgbImage {
-    let (width, height) = img.dimensions();
-    let config = BorderConfig::from_image_dimensions(width, height);
+pub fn add_bleed_border(img: &DynamicImage) -> RgbImage {
+    let (orig_w, orig_h) = img.dimensions();
 
-    let (src_w, src_h) = img.dimensions();
-    let rgb_view = img.to_rgb8();
-    let src_raw = rgb_view.as_raw();
+    // If image is smaller than the mpc cutline, scale so the longest side fits.
+    let scale_to_fit = (CUT_WIDTH / orig_w as f32).min(CUT_HEIGHT / orig_h as f32);
+    let working_img = if scale_to_fit > 1.0 {
+        let new_w = (orig_w as f32 * scale_to_fit).round() as u32;
+        let new_h = (orig_h as f32 * scale_to_fit).round() as u32;
+        let scaled = img.resize_exact(new_w, new_h, FilterType::Lanczos3);
+        scaled.to_rgb8()
+    } else {
+        img.to_rgb8()
+    };
 
+    let (src_w, src_h) = working_img.dimensions();
+    let config = BleedConfig::calculate(src_w, src_h);
+
+    let src_raw = working_img.as_raw();
     let mut dest_raw = vec![0u8; (config.output_width * config.output_height * 3) as usize];
 
     for y in 0..config.output_height {
-        let src_y = (y as i32 - config.border_size as i32).clamp(0, src_h as i32 - 1) as u32;
+        let src_y = (y as i32 - config.bleed_y as i32).clamp(0, src_h as i32 - 1) as u32;
         let src_row_start = (src_y * src_w * 3) as usize;
         let src_row_end = src_row_start + (src_w * 3) as usize;
         let src_row = &src_raw[src_row_start..src_row_end];
@@ -43,19 +60,19 @@ pub fn create_bordered_base(img: &DynamicImage) -> RgbImage {
 
         // 1. Fill Left Border (Repeat the first pixel of the source row)
         let first_pixel = &src_row[0..3];
-        for x in 0..config.border_size {
+        for x in 0..config.bleed_x {
             let idx = dest_row_start + (x * 3) as usize;
             dest_raw[idx..idx + 3].copy_from_slice(first_pixel);
         }
 
         // 2. Fill Center (Fast blit of the entire source row)
-        let center_start = dest_row_start + (config.border_size * 3) as usize;
+        let center_start = dest_row_start + (config.bleed_x * 3) as usize;
         let center_end = center_start + (src_w * 3) as usize;
         dest_raw[center_start..center_end].copy_from_slice(src_row);
 
         // 3. Fill Right Border (Repeat the last pixel of the source row)
         let last_pixel = &src_row[(src_w as usize - 1) * 3..];
-        for x in (config.border_size + src_w)..config.output_width {
+        for x in (config.bleed_x + src_w)..config.output_width {
             let idx = dest_row_start + (x * 3) as usize;
             dest_raw[idx..idx + 3].copy_from_slice(last_pixel);
         }
@@ -112,18 +129,36 @@ mod tests {
 
     #[test]
     fn test_border_config_calculation() {
-        // Test with NSG-sized image (744×1039)
-        // Should add 36px per side at 300 DPI scale
-        let config = BorderConfig::from_image_dimensions(744, 1039);
-        assert_eq!(config.output_width, 816); // 744 + (36*2)
-        assert_eq!(config.output_height, 1111); // 1039 + (36*2)
+        // Test with standard size
+        let config = BleedConfig::calculate(744, 1038);
+        assert_eq!(config.output_width, 816);
+        assert_eq!(config.output_height, 1110);
+        assert_eq!(config.bleed_x, 36);
+        assert_eq!(config.bleed_y, 36);
 
-        // Test with PopTartNZ-sized image (1461×2076)
-        // DPI scale ≈ 1.96, so 36px scales to ~71px per side
-        let config = BorderConfig::from_image_dimensions(1461, 2076);
-        let expected_bleed_per_side = (36.0 * (1461.0 / 744.0_f32)).round() as u32;
-        assert_eq!(config.output_width, 1461 + (expected_bleed_per_side * 2));
-        assert_eq!(config.output_height, 2076 + (expected_bleed_per_side * 2));
+        // Test with large PopTartNZ image
+        let config = BleedConfig::calculate(1461, 2076);
+        assert_eq!(config.output_width, 1632);
+        assert_eq!(config.output_height, 2220);
+        assert_eq!(config.bleed_x, 85);
+        assert_eq!(config.bleed_y, 72);
+
+        // Following tests aren't expected in practice,
+        // because the image should be scaled to baseline before calculating BleedConfig
+
+        // Test with slightly smaller NSG image
+        let config = BleedConfig::calculate(744, 1031);
+        assert_eq!(config.output_width, 816);
+        assert_eq!(config.output_height, 1110);
+        assert_eq!(config.bleed_x, 36);
+        assert_eq!(config.bleed_y, 39);
+
+        // Test with smallest NSG image
+        let config = BleedConfig::calculate(481, 669);
+        assert_eq!(config.output_width, 528);
+        assert_eq!(config.output_height, 718);
+        assert_eq!(config.bleed_x, 23);
+        assert_eq!(config.bleed_y, 24);
     }
 
     #[test]
