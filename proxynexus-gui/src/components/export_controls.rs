@@ -73,6 +73,7 @@ pub struct ExportControlsProps {
     pub progress: Signal<Option<f32>>,
     pub is_disabled: bool,
     pub on_generate: EventHandler<ExportConfig>,
+    pub on_open_info: EventHandler<(f64, f64, f64)>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -252,7 +253,41 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                 }
 
                 div { class: "flex flex-col gap-2",
-                    label { class: "text-sm font-medium text-gray-700", "Print Layout" }
+                    div { class: "flex items-center gap-2",
+                        label { class: "text-sm font-medium text-gray-700", "Print Layout" }
+                        button {
+                            id: "print-layout-info-btn",
+                            class: "text-gray-400 hover:text-blue-500 transition-colors focus:outline-none",
+                            onclick: move |_| {
+                                spawn(async move {
+                                    let mut eval = dioxus::document::eval(
+                                        "
+                                        let el = document.getElementById('print-layout-info-btn');
+                                        let rect = el.getBoundingClientRect();
+                                        dioxus.send([rect.x, rect.y, rect.width]);
+                                        ",
+                                    );
+                                    if let Ok((x, y, w)) = eval.recv::<(f64, f64, f64)>().await {
+                                        props.on_open_info.call((x, y, w));
+                                    }
+                                });
+                            },
+                            svg {
+                                xmlns: "http://www.w3.org/2000/svg",
+                                width: "16",
+                                height: "16",
+                                view_box: "0 0 24 24",
+                                fill: "none",
+                                stroke: "currentColor",
+                                stroke_width: "2",
+                                stroke_linecap: "round",
+                                stroke_linejoin: "round",
+                                circle { cx: "12", cy: "12", r: "10" }
+                                line { x1: "12", x2: "12", y1: "8", y2: "12" }
+                                line { x1: "12", x2: "12.01", y1: "16", y2: "16" }
+                            }
+                        }
+                    }
                     SegmentedControl {
                         value: print_layout(),
                         disabled: is_generating,

@@ -17,6 +17,7 @@ mod export;
 use components::about_modal::AboutModal;
 use components::export_controls::ExportControls;
 use components::preview_grid::PreviewGrid;
+use components::print_layout_info::PrintLayoutInfo;
 use components::source_selector::{ActiveSource, SourceSelector};
 use components::variant_selector::{VariantSelector, VariantSelectorState};
 
@@ -244,6 +245,7 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
     let mut open_variant_selector = use_signal(|| None::<VariantSelectorState>);
     let mut is_overrides_reset_pending = use_signal(|| false);
     let mut is_about_open = use_signal(|| false);
+    let mut print_layout_info_pos = use_signal(|| None::<(f64, f64, f64)>);
 
     use_effect(move || {
         let current_source = active_source();
@@ -451,6 +453,7 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
                 ExportControls {
                     progress,
                     is_disabled: is_generate_disabled,
+                    on_open_info: move |pos| print_layout_info_pos.set(Some(pos)),
                     on_generate: move |config: components::export_controls::ExportConfig| {
                         let source = active_source();
                         spawn(export::run_export(
@@ -470,6 +473,13 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
             if is_about_open() {
                 AboutModal {
                     on_close: move |_| is_about_open.set(false),
+                }
+            }
+
+            if let Some(pos) = print_layout_info_pos() {
+                PrintLayoutInfo {
+                    pos,
+                    on_close: move |_| print_layout_info_pos.set(None),
                 }
             }
         }

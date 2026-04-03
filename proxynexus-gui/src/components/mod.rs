@@ -2,6 +2,7 @@ pub mod about_modal;
 pub mod card_list_input;
 pub mod export_controls;
 pub mod preview_grid;
+pub mod print_layout_info;
 pub mod source_selector;
 pub mod variant_selector;
 
