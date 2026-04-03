@@ -58,7 +58,6 @@ pub fn SourceSelector(props: SourceSelectorProps) -> Element {
     rsx! {
         div {
             class: "flex flex-col flex-1 p-4 w-full",
-            h2 { class: "text-lg font-bold mb-4 text-gray-800", "Source" }
 
             div { class: "flex border-b border-gray-200 mb-4",
                 button {

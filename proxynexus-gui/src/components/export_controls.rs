@@ -1,10 +1,71 @@
 use dioxus::prelude::*;
 use proxynexus_core::pdf::{CutLines, PageSize, PdfOptions, PrintLayout};
 
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum ExportFormat {
+    Pdf,
+    Mpc,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum PageSizePreset {
+    Letter,
+    A4,
+    Custom,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum CustomUnit {
+    In,
+    Cm,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum ExportConfig {
     Pdf(PdfOptions),
     Mpc,
+}
+
+#[derive(Props, Clone, PartialEq, Debug)]
+struct SegmentedControlProps<T: PartialEq + Copy + 'static> {
+    value: T,
+    options: Vec<(T, &'static str)>,
+    on_change: EventHandler<T>,
+    disabled: bool,
+}
+
+#[component]
+fn SegmentedControl<T: PartialEq + Copy + 'static>(props: SegmentedControlProps<T>) -> Element {
+    rsx! {
+        div {
+            class: "flex flex-wrap p-1 bg-gray-200 rounded-lg gap-1",
+            role: "radiogroup",
+            for (opt_value, label) in props.options {
+                {
+                    let is_active = props.value == opt_value;
+                    let base_class = "flex-1 text-center py-1.5 px-3 font-medium rounded-md text-sm \
+                                      transition-all focus:outline-none focus-visible:ring-2 \
+                                      focus-visible:ring-blue-400 whitespace-nowrap";
+                    let state_class = if is_active {
+                        "bg-white text-blue-600 shadow-sm"
+                    } else {
+                        "text-gray-600 hover:text-gray-900 hover:bg-gray-300/50"
+                    };
+
+                    rsx! {
+                        button {
+                            disabled: props.disabled,
+                            role: "radio",
+                            aria_checked: is_active,
+                            class: "{base_class} {state_class}",
+                            onclick: move |_| props.on_change.call(opt_value),
+                            "{label}"
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Props, Clone, PartialEq)]
@@ -23,30 +84,32 @@ struct PageSizeValidation {
 
 #[component]
 pub fn ExportControls(props: ExportControlsProps) -> Element {
-    let mut export_format = use_signal(|| "pdf".to_string());
-    let mut page_size_preset = use_signal(|| "Letter".to_string());
+    let mut export_format = use_signal(|| ExportFormat::Pdf);
+    let mut page_size_preset = use_signal(|| PageSizePreset::Letter);
     let mut cut_lines = use_signal(CutLines::default);
     let mut print_layout = use_signal(PrintLayout::default);
 
     let mut custom_width = use_signal(|| "".to_string());
     let mut custom_height = use_signal(|| "".to_string());
-    let mut custom_unit = use_signal(|| "in".to_string());
+    let mut custom_unit = use_signal(|| CustomUnit::In);
+
+    let is_generating = (props.progress)().is_some();
 
     let page_size_validation = use_memo(move || -> PageSizeValidation {
-        match page_size_preset().as_str() {
-            "A4" => PageSizeValidation {
+        match page_size_preset() {
+            PageSizePreset::A4 => PageSizeValidation {
                 result: Some(PageSize::A4),
                 width_invalid: false,
                 height_invalid: false,
             },
-            "Custom" => {
+            PageSizePreset::Custom => {
                 let w_text = custom_width();
                 let h_text = custom_height();
 
                 let w = w_text.parse::<f32>();
                 let h = h_text.parse::<f32>();
 
-                let factor = if custom_unit() == "cm" {
+                let factor = if custom_unit() == CustomUnit::Cm {
                     1.0 / 2.54
                 } else {
                     1.0
@@ -68,7 +131,7 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                     height_invalid: !h_valid && !h_text.is_empty(),
                 }
             }
-            _ => PageSizeValidation {
+            PageSizePreset::Letter => PageSizeValidation {
                 result: Some(PageSize::Letter),
                 width_invalid: false,
                 height_invalid: false,
@@ -76,136 +139,131 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
         }
     });
 
+    let validation = page_size_validation();
+
     rsx! {
         div {
             class: "p-4 border-t border-gray-200 bg-gray-50 flex flex-col gap-4",
-            h2 { class: "text-lg font-bold text-gray-800", "Export" }
 
             div { class: "flex flex-col gap-2",
                 label { class: "text-sm font-medium text-gray-700", "Format" }
-                select {
-                    disabled: (props.progress)().is_some(),
-                    class: "w-full p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-400 bg-white text-sm",
-                    value: "{export_format()}",
-                    onchange: move |evt| export_format.set(evt.value().clone()),
-                    option { value: "pdf", "PDF" }
-                    option { value: "mpc", "MakePlayingCards.com" }
+                SegmentedControl {
+                    value: export_format(),
+                    disabled: is_generating,
+                    options: vec![
+                        (ExportFormat::Pdf, "PDF"),
+                        (ExportFormat::Mpc, "MPC"),
+                    ],
+                    on_change: move |v| export_format.set(v)
                 }
             }
 
-            if export_format() == "pdf" {
+            if export_format() == ExportFormat::Pdf {
                 div { class: "flex flex-col gap-2",
                     label { class: "text-sm font-medium text-gray-700", "Page Size" }
-                    select {
-                        disabled: (props.progress)().is_some(),
-                        class: "w-full p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-400 bg-white text-sm",
-                        value: "{page_size_preset()}",
-                        onchange: move |evt| page_size_preset.set(evt.value().clone()),
-                        option { value: "Letter", "Letter" }
-                        option { value: "A4", "A4" }
-                        option { value: "Custom", "Custom" }
+                    SegmentedControl {
+                        value: page_size_preset(),
+                        disabled: is_generating,
+                        options: vec![
+                            (PageSizePreset::Letter, "Letter"),
+                            (PageSizePreset::A4, "A4"),
+                            (PageSizePreset::Custom, "Custom"),
+                        ],
+                        on_change: move |v| page_size_preset.set(v)
                     }
                 }
 
-                if page_size_preset() == "Custom" {
+                if page_size_preset() == PageSizePreset::Custom {
                     div { class: "flex gap-2 items-start pt-2",
-                        div { class: "flex flex-col w-full gap-1",
-                            input {
-                                disabled: (props.progress)().is_some(),
-                                class: if page_size_validation().width_invalid {
-                                    "w-full p-2 border border-red-500 rounded-md outline-none focus:ring-2 focus:ring-red-400 bg-red-50 text-sm"
-                                } else {
-                                    "w-full p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-400 bg-white text-sm"
-                                },
-                                type: "text",
-                                placeholder: "Width",
-                                value: "{custom_width()}",
-                                oninput: move |evt| custom_width.set(evt.value().clone())
+                        {
+                            let base = "w-full p-2 border rounded-md outline-none focus:ring-2 text-sm transition-all";
+                            let w_state = if validation.width_invalid {
+                                "border-red-500 focus:ring-red-400 bg-red-50"
+                            } else {
+                                "border-gray-300 focus:ring-blue-400 bg-white"
+                            };
+                            let h_state = if validation.height_invalid {
+                                "border-red-500 focus:ring-red-400 bg-red-50"
+                            } else {
+                                "border-gray-300 focus:ring-blue-400 bg-white"
+                            };
+
+                            rsx! {
+                                div { class: "flex flex-col w-full gap-1",
+                                    input {
+                                        disabled: is_generating,
+                                        class: "{base} {w_state}",
+                                        type: "text",
+                                        placeholder: "Width",
+                                        value: "{custom_width()}",
+                                        oninput: move |evt| custom_width.set(evt.value().clone())
+                                    }
+                                    if validation.width_invalid {
+                                        span { class: "text-xs text-red-500 font-medium", "Invalid" }
+                                    }
+                                }
+                                div { class: "flex flex-col w-full gap-1",
+                                    input {
+                                        disabled: is_generating,
+                                        class: "{base} {h_state}",
+                                        type: "text",
+                                        placeholder: "Height",
+                                        value: "{custom_height()}",
+                                        oninput: move |evt| custom_height.set(evt.value().clone())
+                                    }
+                                    if validation.height_invalid {
+                                        span { class: "text-xs text-red-500 font-medium", "Invalid" }
+                                    }
+                                }
+                                select {
+                                    disabled: is_generating,
+                                    class: "p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-400 bg-white text-sm h-[38px] shrink-0",
+                                    value: match custom_unit() {
+                                        CustomUnit::In => "in",
+                                        CustomUnit::Cm => "cm",
+                                    },
+                                    onchange: move |evt| {
+                                        let val = match evt.value().as_str() {
+                                            "cm" => CustomUnit::Cm,
+                                            _ => CustomUnit::In,
+                                        };
+                                        custom_unit.set(val);
+                                    },
+                                    option { value: "in", "in" }
+                                    option { value: "cm", "cm" }
+                                }
                             }
-                            if page_size_validation().width_invalid {
-                                span { class: "text-xs text-red-500 font-medium", "Invalid" }
-                            }
-                        }
-                        div { class: "flex flex-col w-full gap-1",
-                            input {
-                                disabled: (props.progress)().is_some(),
-                                class: if page_size_validation().height_invalid {
-                                    "w-full p-2 border border-red-500 rounded-md outline-none focus:ring-2 focus:ring-red-400 bg-red-50 text-sm"
-                                } else {
-                                    "w-full p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-400 bg-white text-sm"
-                                },
-                                type: "text",
-                                placeholder: "Height",
-                                value: "{custom_height()}",
-                                oninput: move |evt| custom_height.set(evt.value().clone())
-                            }
-                            if page_size_validation().height_invalid {
-                                span { class: "text-xs text-red-500 font-medium", "Invalid" }
-                            }
-                        }
-                        select {
-                            disabled: (props.progress)().is_some(),
-                            class: "p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-400 bg-white text-sm h-[38px]",
-                            value: "{custom_unit()}",
-                            onchange: move |evt| custom_unit.set(evt.value().clone()),
-                            option { value: "in", "in" }
-                            option { value: "cm", "cm" }
                         }
                     }
                 }
 
                 div { class: "flex flex-col gap-2",
                     label { class: "text-sm font-medium text-gray-700", "Cut Lines" }
-                    select {
-                        disabled: (props.progress)().is_some(),
-                        class: "w-full p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-400 bg-white text-sm",
-                        value: match cut_lines() {
-                            CutLines::None => "None",
-                            CutLines::Margins => "Margins",
-                            CutLines::FullPage => "FullPage",
-                        },
-                        onchange: move |evt| {
-                            let selected = match evt.value().as_str() {
-                                "None" => CutLines::None,
-                                "FullPage" => CutLines::FullPage,
-                                _ => CutLines::Margins,
-                            };
-                            cut_lines.set(selected);
-                        },
-                        option { value: "None", "None" }
-                        option { value: "Margins", "Margins" }
-                        option { value: "FullPage", "Full Page" }
+                    SegmentedControl {
+                        value: cut_lines(),
+                        disabled: is_generating,
+                        options: vec![
+                            (CutLines::None, "None"),
+                            (CutLines::Margins, "Margins"),
+                            (CutLines::FullPage, "Full Page"),
+                        ],
+                        on_change: move |v| cut_lines.set(v)
                     }
                 }
 
                 div { class: "flex flex-col gap-2",
                     label { class: "text-sm font-medium text-gray-700", "Print Style" }
-                    select {
-                        disabled: (props.progress)().is_some(),
-                        class: "w-full p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-400 bg-white text-sm",
-                        value: match print_layout() {
-                            PrintLayout::EdgeToEdge => "EdgeToEdge",
-                            PrintLayout::SmallMargin => "SmallMargin",
-                            PrintLayout::LargeMargin => "LargeMargin",
-                            PrintLayout::NarrowGap => "NarrowGap",
-                            PrintLayout::WideGap => "WideGap",
-                        },
-                        onchange: move |evt| {
-                            let selected = match evt.value().as_str() {
-                                "EdgeToEdge" => PrintLayout::EdgeToEdge,
-                                "SmallMargin" => PrintLayout::SmallMargin,
-                                "LargeMargin" => PrintLayout::LargeMargin,
-                                "NarrowGap" => PrintLayout::NarrowGap,
-                                "WideGap" => PrintLayout::WideGap,
-                                _ => PrintLayout::EdgeToEdge,
-                            };
-                            print_layout.set(selected);
-                        },
-                        option { value: "EdgeToEdge", "Edge-to-Edge" }
-                        option { value: "SmallMargin", "Small Margin" }
-                        option { value: "LargeMargin", "Large Margin" }
-                        option { value: "NarrowGap", "Narrow Gap" }
-                        option { value: "WideGap", "Wide Gap" }
+                    SegmentedControl {
+                        value: print_layout(),
+                        disabled: is_generating,
+                        options: vec![
+                            (PrintLayout::EdgeToEdge, "Edge-to-Edge"),
+                            (PrintLayout::SmallMargin, "Small Margin"),
+                            (PrintLayout::LargeMargin, "Large Margin"),
+                            (PrintLayout::NarrowGap, "Narrow Gap"),
+                            (PrintLayout::WideGap, "Wide Gap"),
+                        ],
+                        on_change: move |v| print_layout.set(v)
                     }
                 }
             }
@@ -223,29 +281,36 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                     }
                 }
             } else {
-                button {
-                    class: if props.is_disabled {
-                        "w-full py-2 px-4 bg-gray-300 text-gray-500 font-semibold rounded-md shadow-sm mt-2 cursor-not-allowed"
+                {
+                    let btn_base = "w-full py-2 px-4 font-semibold rounded-md shadow-sm transition-colors mt-2 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1";
+                    let btn_state = if props.is_disabled {
+                        "bg-gray-300 text-gray-500 cursor-not-allowed"
                     } else {
-                        "w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-md shadow-sm transition-colors mt-2"
-                    },
-                    disabled: props.is_disabled,
-                    onclick: move |_| {
-                        if props.is_disabled { return; }
-                        let config = match export_format().as_str() {
-                            "mpc" => ExportConfig::Mpc,
-                            _ => match page_size_validation().result {
-                                Some(page_size) => ExportConfig::Pdf(PdfOptions {
-                                    page_size,
-                                    cut_lines: cut_lines(),
-                                    print_layout: print_layout(),
-                                }),
-                                None => return,
-                            }
-                        };
-                        props.on_generate.call(config);
-                    },
-                    "Generate"
+                        "bg-blue-600 hover:bg-blue-700 text-white"
+                    };
+
+                    rsx! {
+                        button {
+                            class: "{btn_base} {btn_state}",
+                            disabled: props.is_disabled,
+                            onclick: move |_| {
+                                if props.is_disabled { return; }
+                                let config = match export_format() {
+                                    ExportFormat::Mpc => ExportConfig::Mpc,
+                                    ExportFormat::Pdf => match validation.result {
+                                        Some(page_size) => ExportConfig::Pdf(PdfOptions {
+                                            page_size,
+                                            cut_lines: cut_lines(),
+                                            print_layout: print_layout(),
+                                        }),
+                                        None => return,
+                                    }
+                                };
+                                props.on_generate.call(config);
+                            },
+                            "Generate"
+                        }
+                    }
                 }
             }
         }
