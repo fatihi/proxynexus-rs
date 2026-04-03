@@ -1,0 +1,13 @@
+[project]
+name = "nsg-page-slicer"
+version = "0.1.0"
+description = "A script to slice and debug page images extracted from NSG Print and Play PDFs"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26.0",
+    "opencv-python>=4.9.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
