@@ -57,9 +57,9 @@ pub fn SourceSelector(props: SourceSelectorProps) -> Element {
 
     rsx! {
         div {
-            class: "flex flex-col flex-1 p-4 w-full",
+            class: "flex flex-col flex-none h-[160px] md:flex-1 md:h-auto p-4 w-full",
 
-            div { class: "flex border-b border-gray-200 mb-4",
+            div { class: "flex border-b border-gray-200 mb-4 shrink-0",
                 button {
                     class: if tab() == "list" { "px-4 py-2 border-b-2 border-blue-600 text-blue-600 text-sm font-semibold -mb-[1px]" } else { "px-4 py-2 text-gray-500 text-sm font-medium hover:text-gray-700 border-b-2 border-transparent -mb-[1px]" },
                     onclick: move |_| {

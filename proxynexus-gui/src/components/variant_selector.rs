@@ -53,7 +53,7 @@ pub fn VariantSelector(props: VariantSelectorProps) -> Element {
             }
 
             div {
-                class: "flex flex-wrap gap-2 max-w-[650px]",
+                class: "flex flex-wrap gap-2 max-w-[280px] md:max-w-[650px]",
                 for v in variants.into_iter() {
                     {
                         let v_str = format!("{}:{}:{}", v.variant, v.collection, v.pack_code);
@@ -61,7 +61,7 @@ pub fn VariantSelector(props: VariantSelectorProps) -> Element {
 
                         rsx! {
                             button {
-                                class: format!("relative w-[150px] shrink-0 rounded overflow-hidden aspect-[2.5/3.5] border-2 transition-all {}",
+                                class: format!("relative w-[80px] md:w-[150px] shrink-0 rounded overflow-hidden aspect-[2.5/3.5] border-2 transition-all {}",
                                     if is_selected {
                                         "border-blue-500 shadow-md ring-2 ring-blue-500 ring-offset-1"
                                     } else {

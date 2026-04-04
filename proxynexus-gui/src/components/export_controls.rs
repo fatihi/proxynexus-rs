@@ -43,7 +43,7 @@ fn SegmentedControl<T: PartialEq + Copy + 'static>(props: SegmentedControlProps<
             for (opt_value, label) in props.options {
                 {
                     let is_active = props.value == opt_value;
-                    let base_class = "flex-1 text-center py-1.5 px-3 font-medium rounded-md text-sm \
+                    let base_class = "flex-1 text-center py-1 md:py-1.5 px-2 md:px-3 font-medium rounded-md text-xs md:text-sm \
                                       transition-all focus:outline-none focus-visible:ring-2 \
                                       focus-visible:ring-blue-400 whitespace-nowrap";
                     let state_class = if is_active {
@@ -144,10 +144,10 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
 
     rsx! {
         div {
-            class: "h-[480px] flex-shrink-0 p-4 border-t border-gray-200 bg-gray-50 flex flex-col gap-4 overflow-y-auto",
+            class: "md:h-[480px] flex-shrink-0 p-2 md:p-4 border-t border-gray-200 bg-gray-50 flex flex-col gap-2 md:gap-4 overflow-y-auto",
 
-            div { class: "flex flex-col gap-2",
-                label { class: "text-sm font-medium text-gray-700", "Format" }
+            div { class: "flex flex-col gap-1 md:gap-2",
+                label { class: "text-xs md:text-sm font-medium text-gray-700", "Format" }
                 SegmentedControl {
                     value: export_format(),
                     disabled: is_generating,
@@ -160,8 +160,8 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
             }
 
             if export_format() == ExportFormat::Pdf {
-                div { class: "flex flex-col gap-2",
-                    label { class: "text-sm font-medium text-gray-700", "Page Size" }
+                div { class: "flex flex-col gap-1 md:gap-2",
+                    label { class: "text-xs md:text-sm font-medium text-gray-700", "Page Size" }
                     SegmentedControl {
                         value: page_size_preset(),
                         disabled: is_generating,
@@ -177,7 +177,7 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                 if page_size_preset() == PageSizePreset::Custom {
                     div { class: "flex gap-2 items-start pt-2",
                         {
-                            let base = "w-full p-2 border rounded-md outline-none focus:ring-2 text-sm transition-all";
+                            let base = "w-full p-2 border rounded-md outline-none focus:ring-2 text-xs md:text-sm transition-all";
                             let w_state = if validation.width_invalid {
                                 "border-red-500 focus:ring-red-400 bg-red-50"
                             } else {
@@ -218,7 +218,7 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                                 }
                                 select {
                                     disabled: is_generating,
-                                    class: "p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-400 bg-white text-sm h-[38px] shrink-0",
+                                    class: "p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-400 bg-white text-xs md:text-sm h-[38px] shrink-0",
                                     value: match custom_unit() {
                                         CustomUnit::In => "in",
                                         CustomUnit::Cm => "cm",
@@ -238,8 +238,8 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                     }
                 }
 
-                div { class: "flex flex-col gap-2",
-                    label { class: "text-sm font-medium text-gray-700", "Cut Lines" }
+                div { class: "flex flex-col gap-1 md:gap-2",
+                    label { class: "text-xs md:text-sm font-medium text-gray-700", "Cut Lines" }
                     SegmentedControl {
                         value: cut_lines(),
                         disabled: is_generating,
@@ -252,9 +252,9 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                     }
                 }
 
-                div { class: "flex flex-col gap-2",
+                div { class: "flex flex-col gap-1 md:gap-2",
                     div { class: "flex items-center gap-2",
-                        label { class: "text-sm font-medium text-gray-700", "Print Layout" }
+                        label { class: "text-xs md:text-sm font-medium text-gray-700", "Print Layout" }
                         button {
                             id: "print-layout-info-btn",
                             class: "text-gray-400 hover:text-blue-500 transition-colors focus:outline-none",
@@ -303,7 +303,7 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
             }
 
             if let Some(p) = (props.progress)() {
-                div { class: "mt-auto flex flex-col gap-2",
+                div { class: "mt-auto pt-4 md:pt-0 flex flex-col gap-2",
                     div { class: "w-full bg-gray-200 rounded-full h-4 overflow-hidden",
                         div {
                             class: "bg-blue-600 h-full transition-all duration-75",
@@ -316,9 +316,9 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                 }
             } else {
                 div {
-                    class: "mt-auto",
+                    class: "mt-auto pt-4 md:pt-0",
                     {
-                        let btn_base = "w-full py-2 px-4 font-semibold rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1";
+                        let btn_base = "w-full py-1.5 md:py-2 px-3 md:px-4 font-semibold rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 text-xs md:text-sm";
                         let btn_state = if props.is_disabled {
                             "bg-gray-300 text-gray-500 cursor-not-allowed"
                         } else {

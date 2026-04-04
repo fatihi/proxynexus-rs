@@ -16,7 +16,7 @@ pub fn PrintLayoutInfo(props: PrintLayoutInfoProps) -> Element {
             onclick: move |_| props.on_close.call(()),
 
             div {
-                class: "absolute bg-white p-6 rounded-lg shadow-2xl border border-gray-200 w-80",
+                class: "absolute max-md:!fixed max-md:!top-1/2 max-md:!left-1/2 max-md:![transform:translate(-50%,-50%)] bg-white p-6 rounded-lg shadow-2xl border border-gray-200 w-[90vw] md:w-80",
                 style: "top: {y - 12.0}px; left: {x + w / 2.0}px; transform: translate(-50%, -100%);",
                 onclick: move |evt| evt.stop_propagation(),
 

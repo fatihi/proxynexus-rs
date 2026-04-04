@@ -245,7 +245,7 @@ pub fn CardListInput(props: CardListInputProps) -> Element {
             class: "relative flex-1 w-full flex flex-col",
             textarea {
                 id: "card-list-input",
-                class: "flex-1 w-full p-3 border border-gray-300 rounded-md shadow-sm outline-none focus:ring-2 focus:ring-blue-400 resize-none font-mono text-sm",
+                class: "flex-1 w-full p-3 border border-gray-300 rounded-md shadow-sm outline-none focus:ring-2 focus:ring-blue-400 resize-none font-mono text-base md:text-sm",
                 placeholder: "Enter your card list here (e.g. 3x Sure Gamble)...",
                 initial_value: "{props.list_text.peek()}",
                 oninput: handle_input,
@@ -260,9 +260,9 @@ pub fn CardListInput(props: CardListInputProps) -> Element {
                     for (i, suggestion) in suggestions.read().iter().enumerate() {
                         div {
                             class: if i == highlighted_suggestion_idx() {
-                                "px-4 py-2 cursor-pointer bg-blue-100 text-blue-900 text-sm font-mono"
+                                "px-4 py-2 cursor-pointer bg-blue-100 text-blue-900 text-base md:text-sm font-mono"
                             } else {
-                                "px-4 py-2 cursor-pointer hover:bg-gray-100 text-sm font-mono"
+                                "px-4 py-2 cursor-pointer hover:bg-gray-100 text-base md:text-sm font-mono"
                             },
                             onclick: {
                                 let sug = suggestion.clone();

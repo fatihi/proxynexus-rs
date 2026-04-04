@@ -392,12 +392,12 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
 
     rsx! {
         div {
-            class: "absolute inset-0 flex overflow-hidden select-none bg-gray-50",
+            class: "absolute inset-0 flex flex-col md:flex-row overflow-hidden select-none bg-gray-50",
             onclick: move |_| open_variant_selector.set(None),
             onwheel: move |_| open_variant_selector.set(None),
 
             div {
-                class: "flex-1 flex flex-col min-w-0 p-6 overflow-y-auto",
+                class: "flex-1 flex flex-col min-w-0 min-h-0 p-4 md:p-6 overflow-y-auto",
                 style: "z-index: 20;",
                 if let Some(result) = ordered_printings.read().as_ref() {
                     match result {
@@ -425,7 +425,7 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
 
             div {
                 style: "z-index: 10;",
-                class: "relative w-[440px] h-full bg-white flex-shrink-0 flex flex-col border-l border-gray-200",
+                class: "relative md:w-[440px] bg-white flex-shrink-0 flex flex-col border-t md:border-t-0 md:border-l border-gray-200",
                 button {
                     class: "absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10",
                     onclick: move |_| is_about_open.set(true),

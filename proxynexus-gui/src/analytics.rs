@@ -78,6 +78,36 @@ pub fn send_report(report: GenerationReport) {
         Vec::new()
     };
 
+    #[cfg(target_arch = "wasm32")]
+    let (os, browser) = {
+        let mut os = "unknown".to_string();
+        let mut browser = "unknown".to_string();
+        if let Some(window) = web_sys::window() {
+            if let Ok(user_agent) = window.navigator().user_agent() {
+                browser = user_agent.clone();
+                let ua_lower = user_agent.to_lowercase();
+                if ua_lower.contains("windows") {
+                    os = "windows".to_string();
+                } else if ua_lower.contains("iphone")
+                    || ua_lower.contains("ipad")
+                    || ua_lower.contains("ios")
+                {
+                    os = "ios".to_string();
+                } else if ua_lower.contains("mac") {
+                    os = "macos".to_string();
+                } else if ua_lower.contains("android") {
+                    os = "android".to_string();
+                } else if ua_lower.contains("linux") {
+                    os = "linux".to_string();
+                }
+            }
+        }
+        (os, browser)
+    };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let (os, browser) = { (std::env::consts::OS.to_string(), "desktop_app".to_string()) };
+
     let payload = json!({
         "api_key": key,
         "event": "export_generated",
@@ -85,6 +115,8 @@ pub fn send_report(report: GenerationReport) {
         "properties": {
             "app_version": env!("CARGO_PKG_VERSION"),
             "platform": if cfg!(target_arch = "wasm32") { "web" } else { "desktop" },
+            "os": os,
+            "browser": browser,
             "format": report.format,
             "options": report.options,
             "runtime_ms": report.runtime_ms,
