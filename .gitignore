@@ -29,3 +29,5 @@ venv/*
 **.csv
 **.pnx
 **.zip
+
+proxynexus-gui/public/card_backs/

@@ -51,6 +51,71 @@ pub async fn generate_mpc_zip(
         .await?;
     }
 
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        zip.start_file("corp_back_original.png", options)?;
+        zip.write_all(include_bytes!("../assets/corp_back_original.png"))?;
+
+        zip.start_file("corp_back_proxy.png", options)?;
+        zip.write_all(include_bytes!("../assets/corp_back_proxy.png"))?;
+
+        zip.start_file("runner_back_original.png", options)?;
+        zip.write_all(include_bytes!("../assets/runner_back_original.png"))?;
+
+        zip.start_file("runner_back_proxy.png", options)?;
+        zip.write_all(include_bytes!("../assets/runner_back_proxy.png"))?;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        use futures::future::join_all;
+        use gloo_net::http::Request;
+
+        let filenames = [
+            "corp_back_original.png",
+            "corp_back_proxy.png",
+            "runner_back_original.png",
+            "runner_back_proxy.png",
+        ];
+
+        let fetch_futures = filenames.iter().map(|filename| async move {
+            let url = format!("card_backs/{}", filename);
+            let response = Request::get(&url).send().await.map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Network error fetching {}: {}",
+                    url, e
+                ))) as Box<dyn std::error::Error>
+            })?;
+
+            if !response.ok() {
+                return Err(Box::new(std::io::Error::other(format!(
+                    "Failed to fetch {}: HTTP {}",
+                    url,
+                    response.status()
+                ))) as Box<dyn std::error::Error>);
+            }
+
+            let bytes: Vec<u8> = response.binary().await.map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Error reading binary from {}: {}",
+                    url, e
+                ))) as Box<dyn std::error::Error>
+            })?;
+
+            Ok((*filename, bytes))
+        });
+
+        let results: Vec<Result<(&str, Vec<u8>), Box<dyn std::error::Error>>> =
+            join_all(fetch_futures).await;
+        for result in results {
+            let (filename, bytes) = result?;
+            zip.start_file(filename, options)?;
+            zip.write_all(&bytes)?;
+        }
+    }
+
     zip.finish()?;
     Ok(zip_buffer.into_inner())
 }
