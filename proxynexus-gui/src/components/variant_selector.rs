@@ -29,7 +29,7 @@ pub fn VariantSelector(props: VariantSelectorProps) -> Element {
 
     rsx! {
         div {
-            class: "bg-white rounded-lg shadow-2xl border-2 border-gray-300 p-4 flex flex-col gap-3 w-fit",
+            class: "bg-white rounded-lg shadow-2xl border-2 border-gray-300 p-4 flex flex-col gap-3 w-max max-w-[calc(100vw-2rem)]",
 
             div { class: "flex justify-between items-center gap-4",
                 h3 { class: "text-sm font-bold text-gray-800", "Select Variant" }

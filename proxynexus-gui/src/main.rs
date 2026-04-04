@@ -334,8 +334,11 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
     });
 
     let variant_selector_overlay = if let Some(state) = open_variant_selector() {
-        let (x, y, w, _h) = state.rect;
-        let left = x + w + 8.0;
+        let (x, y, w, h) = state.rect;
+        let desk_left = x + w + 8.0;
+        let desk_top = y;
+        let mob_left = x;
+        let mob_top = y + h + 8.0;
 
         if let Some((grouped, available)) = printings_by_title.read().as_ref() {
             let title_norm = state.id.0.clone();
@@ -348,8 +351,8 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
 
                         rsx! {
                             div {
-                                class: "absolute pointer-events-auto z-[1000]",
-                                style: "top: {y}px; left: {left}px;",
+                                class: "absolute pointer-events-auto z-[1000] top-[var(--mob-top)] left-[var(--mob-left)] md:top-[var(--desk-top)] md:left-[var(--desk-left)] [transform:translateX(min(0px,calc(100vw-1rem-var(--mob-left)-100%)))] md:[transform:translateX(min(0px,calc(100vw-1rem-var(--desk-left)-100%)))]",
+                                style: "--desk-top: {desk_top}px; --desk-left: {desk_left}px; --mob-top: {mob_top}px; --mob-left: {mob_left}px;",
                                 onclick: move |evt| evt.stop_propagation(),
                                 VariantSelector {
                                     printing: printing.clone(),
