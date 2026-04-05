@@ -1,3 +1,4 @@
+use crate::error::{ProxyNexusError, Result};
 use chrono::Utc;
 use std::fs::{self, File};
 use std::io::Write;
@@ -17,11 +18,13 @@ pub fn build_collection(
     images_dir: &Path,
     language: String,
     version: String,
-) -> Result<BuildReport, Box<dyn std::error::Error>> {
+) -> Result<BuildReport> {
     let images = scan_images(images_dir);
 
     if images.is_empty() {
-        return Err("No images found in images directory".into());
+        return Err(ProxyNexusError::Internal(
+            "No images found in images directory".into(),
+        ));
     }
 
     let manifest = Manifest {
@@ -41,7 +44,7 @@ pub fn build_collection(
     for path in &images {
         let filename = path
             .file_name()
-            .ok_or("Invalid filename")?
+            .ok_or_else(|| ProxyNexusError::Internal("Invalid filename".into()))?
             .to_string_lossy();
 
         zip.start_file(format!("images/{}", filename), options)?;

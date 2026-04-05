@@ -66,10 +66,10 @@ pub enum DbStorage {
 
 impl DbStorage {
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_sled(path: impl AsRef<std::path::Path>) -> crate::error::Result<Self> {
+    pub fn new_sled(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let storage =
             SledStorage::new(path.as_ref().to_str().ok_or_else(|| {
-                crate::error::ProxyNexusError::Internal("Invalid path".to_string())
+                ProxyNexusError::Internal("Invalid path".to_string())
             })?)?;
         Ok(Self::Sled(Glue::new(storage)))
     }
@@ -80,14 +80,15 @@ impl DbStorage {
         Self::Memory(Glue::new(storage))
     }
 
-    pub async fn execute(&mut self, sql: &str) -> std::result::Result<Vec<Payload>, Error> {
-        match self {
+    pub async fn execute(&mut self, sql: &str) -> Result<Vec<Payload>> {
+        let res = match self {
             #[cfg(target_arch = "wasm32")]
             DbStorage::Memory(glue) => glue.execute(sql).await,
 
             #[cfg(not(target_arch = "wasm32"))]
             DbStorage::Sled(glue) => glue.execute(sql).await,
-        }
+        };
+        res.map_err(ProxyNexusError::from)
     }
 
     pub async fn get_next_id(&mut self, table_name: &str) -> Result<i64> {
@@ -106,7 +107,7 @@ impl DbStorage {
         Ok(next_id)
     }
 
-    pub async fn initialize_schema(&mut self) -> crate::error::Result<()> {
+    pub async fn initialize_schema(&mut self) -> Result<()> {
         self.execute(
             "
             CREATE TABLE IF NOT EXISTS meta (

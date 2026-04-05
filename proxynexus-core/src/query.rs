@@ -1,10 +1,11 @@
 use crate::card_source::CardSource;
 use crate::card_store::{CardStore, normalize_title};
 use crate::db_storage::DbStorage;
+use crate::error::Result;
 use crate::models::{CardRequest, Printing};
 use std::collections::HashMap;
 
-pub async fn list_available_sets(db: &mut DbStorage) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn list_available_sets(db: &mut DbStorage) -> Result<String> {
     let mut store = CardStore::new(db)?;
     let sets = store.get_available_packs().await?;
 
@@ -21,7 +22,7 @@ pub async fn list_available_sets(db: &mut DbStorage) -> Result<String, Box<dyn s
 pub async fn generate_query_output(
     card_source: &impl CardSource,
     db: &mut DbStorage,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String> {
     let mut store = CardStore::new(db)?;
     let card_requests = card_source.to_card_requests(&mut store).await?;
 
@@ -33,7 +34,7 @@ pub async fn generate_query_output(
 pub async fn resolve_query_printings(
     card_source: &impl CardSource,
     db: &mut DbStorage,
-) -> Result<(Vec<Printing>, HashMap<String, Vec<Printing>>), Box<dyn std::error::Error>> {
+) -> Result<(Vec<Printing>, HashMap<String, Vec<Printing>>)> {
     let mut store = CardStore::new(db)?;
     let card_requests = card_source.to_card_requests(&mut store).await?;
 
@@ -77,7 +78,7 @@ pub fn apply_variant_overrides(
 fn format_query_output(
     requests: &[CardRequest],
     available: &HashMap<String, Vec<Printing>>,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String> {
     let mut order: Vec<String> = Vec::new();
     let mut counts: HashMap<String, u32> = HashMap::new();
     for req in requests {

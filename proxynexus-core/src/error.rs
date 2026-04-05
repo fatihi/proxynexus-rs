@@ -21,6 +21,18 @@ pub enum ProxyNexusError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    #[error("Zip error: {0}")]
+    Zip(#[from] zip::result::ZipError),
+
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+
+    #[error("Toml Serialization error: {0}")]
+    Toml(#[from] toml::ser::Error),
+
+    #[error("Toml Deserialization error: {0}")]
+    TomlDe(#[from] toml::de::Error),
 }
 
 pub type Result<T> = std::result::Result<T, ProxyNexusError>;

@@ -1,9 +1,9 @@
 use crate::card_store::normalize_title;
 use crate::db_storage::{DbStorage, quote_sql_string};
+use crate::error::Result;
 use crate::models::{Card, Pack};
 use gluesql::FromGlueRow;
 use gluesql::core::row_conversion::SelectExt;
-use gluesql::prelude::*;
 use serde::Deserialize;
 use std::path::PathBuf;
 use tracing::{error, info};
@@ -38,7 +38,7 @@ impl<'a> Catalog<'a> {
         Self { db }
     }
 
-    pub async fn seed_if_empty(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn seed_if_empty(&mut self) -> Result<()> {
         let count = self.get_card_count().await?;
 
         if count == 0 {
@@ -61,7 +61,7 @@ impl<'a> Catalog<'a> {
         Ok(())
     }
 
-    pub async fn update_from_api(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn update_from_api(&mut self) -> Result<()> {
         let cards_json = reqwest::get("https://netrunnerdb.com/api/2.0/public/cards")
             .await?
             .text()
@@ -81,7 +81,7 @@ impl<'a> Catalog<'a> {
         &mut self,
         cards_path: &PathBuf,
         packs_path: &PathBuf,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<()> {
         let cards_json = std::fs::read_to_string(cards_path)?;
         let packs_json = std::fs::read_to_string(packs_path)?;
 
@@ -90,11 +90,7 @@ impl<'a> Catalog<'a> {
         Ok(())
     }
 
-    async fn seed_from_json(
-        &mut self,
-        cards_json: &str,
-        packs_json: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn seed_from_json(&mut self, cards_json: &str, packs_json: &str) -> Result<()> {
         let cards_response: CardsResponse = serde_json::from_str(cards_json)?;
         let packs_response: PacksResponse = serde_json::from_str(packs_json)?;
 
@@ -143,7 +139,7 @@ impl<'a> Catalog<'a> {
         Ok(())
     }
 
-    pub async fn get_info(&mut self) -> Result<String, Box<dyn std::error::Error>> {
+    pub async fn get_info(&mut self) -> Result<String> {
         let count = self.get_card_count().await?;
 
         let payloads = self
@@ -171,7 +167,7 @@ impl<'a> Catalog<'a> {
         Ok(info)
     }
 
-    async fn get_card_count(&mut self) -> Result<i64, Box<dyn std::error::Error>> {
+    async fn get_card_count(&mut self) -> Result<i64> {
         let payloads = self
             .db
             .execute("SELECT COUNT(*) AS count FROM cards")

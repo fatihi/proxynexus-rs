@@ -1,3 +1,4 @@
+use crate::error::{ProxyNexusError, Result};
 use crate::image_provider::ImageProvider;
 use crate::models::Printing;
 use crate::print_prep;
@@ -13,7 +14,7 @@ pub async fn generate_mpc_zip(
     printings: Vec<Printing>,
     image_provider: &impl ImageProvider,
     progress: Option<Box<dyn Fn(f32) + Send + Sync>>,
-) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+) -> Result<Vec<u8>> {
     let total_images: usize = printings.iter().map(|p| 1 + p.parts.len()).sum();
     let mut processed_images = 0;
 
@@ -83,32 +84,25 @@ pub async fn generate_mpc_zip(
         let fetch_futures = filenames.iter().map(|filename| async move {
             let url = format!("card_backs/{}", filename);
             let response = Request::get(&url).send().await.map_err(|e| {
-                Box::new(std::io::Error::other(format!(
-                    "Network error fetching {}: {}",
-                    url, e
-                ))) as Box<dyn std::error::Error>
+                ProxyNexusError::Internal(format!("Network error fetching {}: {}", url, e))
             })?;
 
             if !response.ok() {
-                return Err(Box::new(std::io::Error::other(format!(
+                return Err(ProxyNexusError::Internal(format!(
                     "Failed to fetch {}: HTTP {}",
                     url,
                     response.status()
-                ))) as Box<dyn std::error::Error>);
+                )));
             }
 
-            let bytes: Vec<u8> = response.binary().await.map_err(|e| {
-                Box::new(std::io::Error::other(format!(
-                    "Error reading binary from {}: {}",
-                    url, e
-                ))) as Box<dyn std::error::Error>
+            let bytes = response.binary().await.map_err(|e| {
+                ProxyNexusError::Internal(format!("Error reading binary from {}: {}", url, e))
             })?;
 
             Ok((*filename, bytes))
         });
 
-        let results: Vec<Result<(&str, Vec<u8>), Box<dyn std::error::Error>>> =
-            join_all(fetch_futures).await;
+        let results: Vec<Result<(&str, Vec<u8>)>> = join_all(fetch_futures).await;
         for result in results {
             let (filename, bytes) = result?;
             zip.start_file(filename, options)?;
@@ -130,7 +124,7 @@ async fn process_side<W: Write + Seek>(
     progress: &Option<Box<dyn Fn(f32) + Send + Sync>>,
     processed_images: &mut usize,
     total_images: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let mut copy_counters: HashMap<(String, String, String), u32> = HashMap::new();
     let mut uniqueness_counter: u32 = 0;
 
@@ -156,7 +150,8 @@ async fn process_side<W: Write + Seek>(
             if !image_cache.contains_key(&current_image_key) {
                 let data = image_provider.get_image_bytes(&current_image_key).await?;
                 let image_format = image::guess_format(&data).unwrap_or(ImageFormat::Jpeg);
-                let img = image::load_from_memory(&data)?;
+                let img = image::load_from_memory(&data)
+                    .map_err(|e| ProxyNexusError::Internal(e.to_string()))?;
                 let bleed_image = print_prep::add_bleed_border(&img);
                 image_cache.insert(current_image_key.clone(), (bleed_image, image_format));
             }

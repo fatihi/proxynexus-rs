@@ -1,3 +1,4 @@
+use crate::error::{ProxyNexusError, Result};
 use crate::image_provider::ImageProvider;
 use crate::models::Printing;
 use image::ImageFormat;
@@ -116,7 +117,7 @@ pub async fn generate_pdf(
     image_provider: &impl ImageProvider,
     options: PdfOptions,
     progress: Option<Box<dyn Fn(f32) + Send + Sync>>,
-) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+) -> Result<Vec<u8>> {
     let total_images: usize = printings.iter().map(|p| 1 + p.parts.len()).sum();
     let mut processed_images: usize = 0;
 
@@ -148,9 +149,11 @@ pub async fn generate_pdf(
                 let format = image::guess_format(&image_data).unwrap_or(ImageFormat::Jpeg);
 
                 let image = if format == ImageFormat::Png {
-                    Image::from_png(Data::from(image_data), true)?
+                    Image::from_png(Data::from(image_data), true)
+                        .map_err(|e| ProxyNexusError::Internal(e.to_string()))?
                 } else {
-                    Image::from_jpeg(Data::from(image_data), true)?
+                    Image::from_jpeg(Data::from(image_data), true)
+                        .map_err(|e| ProxyNexusError::Internal(e.to_string()))?
                 };
 
                 image_cache.insert(image_key.clone(), image);

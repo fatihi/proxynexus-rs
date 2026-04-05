@@ -1,3 +1,4 @@
+use crate::error::{ProxyNexusError, Result};
 use image::{DynamicImage, GenericImageView, ImageFormat, RgbImage, imageops::FilterType};
 
 const CUT_WIDTH: f32 = 744.0;
@@ -100,25 +101,26 @@ pub fn apply_uniqueness_marker(img: &mut RgbImage, position: u32) {
     }
 }
 
-pub fn encode_image(
-    bordered: RgbImage,
-    format: ImageFormat,
-) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+pub fn encode_image(bordered: RgbImage, format: ImageFormat) -> Result<Vec<u8>> {
     if format == ImageFormat::Png {
         let mut png_bytes = std::io::Cursor::new(Vec::new());
-        DynamicImage::ImageRgb8(bordered).write_to(&mut png_bytes, ImageFormat::Png)?;
+        DynamicImage::ImageRgb8(bordered)
+            .write_to(&mut png_bytes, ImageFormat::Png)
+            .map_err(|e| ProxyNexusError::Internal(e.to_string()))?;
         return Ok(png_bytes.into_inner());
     }
 
     let mut jpeg_bytes = Vec::new();
     let encoder = jpeg_encoder::Encoder::new(&mut jpeg_bytes, 95);
 
-    encoder.encode(
-        bordered.as_raw(),
-        bordered.width() as u16,
-        bordered.height() as u16,
-        jpeg_encoder::ColorType::Rgb,
-    )?;
+    encoder
+        .encode(
+            bordered.as_raw(),
+            bordered.width() as u16,
+            bordered.height() as u16,
+            jpeg_encoder::ColorType::Rgb,
+        )
+        .map_err(|e| ProxyNexusError::Internal(e.to_string()))?;
 
     Ok(jpeg_bytes)
 }

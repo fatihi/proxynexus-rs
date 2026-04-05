@@ -1,8 +1,8 @@
 use crate::db_storage::{DbStorage, IdRow, quote_sql_string};
+use crate::error::{ProxyNexusError, Result};
 use crate::models::Manifest;
 use gluesql::FromGlueRow;
 use gluesql::core::row_conversion::SelectExt;
-use gluesql::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::info;
@@ -26,10 +26,7 @@ pub struct CollectionManager<'a> {
 }
 
 impl<'a> CollectionManager<'a> {
-    pub fn new(
-        db: &'a mut DbStorage,
-        collections_dir: PathBuf,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(db: &'a mut DbStorage, collections_dir: PathBuf) -> Result<Self> {
         fs::create_dir_all(&collections_dir)?;
 
         Ok(Self {
@@ -38,12 +35,12 @@ impl<'a> CollectionManager<'a> {
         })
     }
 
-    pub async fn add_collection(
-        &mut self,
-        pnx_path: &Path,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn add_collection(&mut self, pnx_path: &Path) -> Result<()> {
         if !pnx_path.exists() {
-            return Err(format!("File not found: {:?}", pnx_path).into());
+            return Err(ProxyNexusError::Internal(format!(
+                "File not found: {:?}",
+                pnx_path
+            )));
         }
 
         let temp_dir = tempfile::tempdir()?;
@@ -60,7 +57,7 @@ impl<'a> CollectionManager<'a> {
         let collection_name = pnx_path
             .file_stem()
             .and_then(|s| s.to_str())
-            .ok_or("Invalid filename")?
+            .ok_or_else(|| ProxyNexusError::Internal("Invalid filename".into()))?
             .to_string();
 
         info!(
@@ -69,7 +66,10 @@ impl<'a> CollectionManager<'a> {
         );
 
         if self.collection_exists(&collection_name).await? {
-            return Err(format!("Collection '{}' has already been added.", collection_name).into());
+            return Err(ProxyNexusError::Internal(format!(
+                "Collection '{}' has already been added.",
+                collection_name
+            )));
         }
 
         let next_coll_id = self.db.get_next_id("collections").await?;
@@ -97,7 +97,7 @@ impl<'a> CollectionManager<'a> {
 
         let mut next_print_id = self.db.get_next_id("printings").await?;
 
-        let tx_result: Result<i32, Box<dyn std::error::Error>> = async {
+        let tx_result: Result<i32> = async {
             let mut printings_added = 0;
             for entry in fs::read_dir(&src_images)? {
                 let entry = entry?;
@@ -140,7 +140,7 @@ impl<'a> CollectionManager<'a> {
             }
             Err(e) => {
                 let _ = self.db.execute("ROLLBACK").await;
-                return Err(e);
+                return Err(ProxyNexusError::Internal(e.to_string()));
             }
         };
 
@@ -172,9 +172,7 @@ impl<'a> CollectionManager<'a> {
         Some((code.to_string(), variant, part))
     }
 
-    pub async fn get_collections(
-        &mut self,
-    ) -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>> {
+    pub async fn get_collections(&mut self) -> Result<Vec<(String, String, String)>> {
         let payloads = self
             .db
             .execute("SELECT name, version, language FROM collections ORDER BY name")
@@ -199,10 +197,7 @@ impl<'a> CollectionManager<'a> {
         Ok(results)
     }
 
-    pub async fn collection_exists(
-        &mut self,
-        name: &str,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
+    pub async fn collection_exists(&mut self, name: &str) -> Result<bool> {
         let payloads = self
             .db
             .execute(&format!(
@@ -223,10 +218,7 @@ impl<'a> CollectionManager<'a> {
         Ok(count > 0)
     }
 
-    pub async fn remove_collection(
-        &mut self,
-        collection_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn remove_collection(&mut self, collection_name: &str) -> Result<()> {
         let payloads = self
             .db
             .execute(&format!(
@@ -241,13 +233,20 @@ impl<'a> CollectionManager<'a> {
                 .into_iter()
                 .next()
                 .map(|row| row.id)
-                .ok_or_else(|| format!("Collection '{}' not found", collection_name))?,
-            None => return Err(format!("Collection '{}' not found", collection_name).into()),
+                .ok_or_else(|| {
+                    ProxyNexusError::Internal(format!("Collection '{}' not found", collection_name))
+                })?,
+            None => {
+                return Err(ProxyNexusError::Internal(format!(
+                    "Collection '{}' not found",
+                    collection_name
+                )));
+            }
         };
 
         self.db.execute("BEGIN").await?;
 
-        let tx_result: Result<(), Box<dyn std::error::Error>> = async {
+        let tx_result: Result<()> = async {
             let del_print_q = format!(
                 "DELETE FROM printings WHERE collection_id = {}",
                 collection_id
@@ -267,7 +266,7 @@ impl<'a> CollectionManager<'a> {
             }
             Err(e) => {
                 let _ = self.db.execute("ROLLBACK").await;
-                return Err(e);
+                return Err(ProxyNexusError::Internal(e.to_string()));
             }
         }
 
