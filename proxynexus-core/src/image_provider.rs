@@ -1,6 +1,8 @@
+use crate::error::{ProxyNexusError, Result};
+
 pub trait ImageProvider: Send + Sync {
     #![allow(async_fn_in_trait)]
-    async fn get_image_bytes(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+    async fn get_image_bytes(&self, key: &str) -> Result<Vec<u8>>;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -20,13 +22,13 @@ impl LocalImageProvider {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl ImageProvider for LocalImageProvider {
-    async fn get_image_bytes(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    async fn get_image_bytes(&self, key: &str) -> Result<Vec<u8>> {
         let full_path = self.base_path.join(key);
         let bytes = std::fs::read(&full_path).map_err(|e| {
-            format!(
+            ProxyNexusError::Internal(format!(
                 "Failed to read image with key {:?} at {:?}: {}",
                 key, full_path, e
-            )
+            ))
         })?;
         Ok(bytes)
     }
@@ -35,14 +37,17 @@ impl ImageProvider for LocalImageProvider {
 pub struct RemoteImageProvider;
 
 impl ImageProvider for RemoteImageProvider {
-    async fn get_image_bytes(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    async fn get_image_bytes(&self, key: &str) -> Result<Vec<u8>> {
         let url = format!("https://collections.proxynexus.net/{}", key);
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             let response = reqwest::get(&url).await?;
             if !response.status().is_success() {
-                return Err(format!("Failed to fetch image: HTTP {}", response.status()).into());
+                return Err(ProxyNexusError::Internal(format!(
+                    "Failed to fetch image: HTTP {}",
+                    response.status()
+                )));
             }
             let bytes = response.bytes().await?;
             Ok(bytes.to_vec())
@@ -51,20 +56,19 @@ impl ImageProvider for RemoteImageProvider {
         #[cfg(target_arch = "wasm32")]
         {
             use gloo_net::http::Request;
-            let response = Request::get(&url).send().await.map_err(|e| {
-                Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error>
-            })?;
+            let response = Request::get(&url).send().await?;
 
             if !response.ok() {
-                return Err(Box::new(std::io::Error::other(format!(
+                return Err(ProxyNexusError::Internal(format!(
                     "Failed to fetch image: HTTP {}",
                     response.status()
-                ))));
+                )));
             }
 
-            let bytes = response.binary().await.map_err(|e| {
-                Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error>
-            })?;
+            let bytes = response
+                .binary()
+                .await
+                .map_err(|e| ProxyNexusError::Internal(e.to_string()))?;
 
             Ok(bytes)
         }

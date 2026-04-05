@@ -1,9 +1,9 @@
 use crate::card_source::{CardSource, Cardlist, SetName};
 use crate::db_storage::{DbStorage, build_in_clause, quote_sql_string};
+use crate::error::{ProxyNexusError, Result};
 use crate::models::{CardRequest, Printing, PrintingPart};
 use gluesql::FromGlueRow;
 use gluesql::core::row_conversion::SelectExt;
-use gluesql::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::string::String;
 use tracing::warn;
@@ -70,10 +70,7 @@ pub fn clean_card_name(name: &str) -> &str {
 }
 
 impl CardSource for Cardlist {
-    async fn to_card_requests(
-        &self,
-        store: &mut CardStore<'_>,
-    ) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
+    async fn to_card_requests(&self, store: &mut CardStore<'_>) -> Result<Vec<CardRequest>> {
         let (requests, not_found) = store.parse_cardlist_into_card_requests(&self.0).await?;
 
         if !not_found.is_empty() {
@@ -90,10 +87,7 @@ impl CardSource for Cardlist {
 }
 
 impl CardSource for SetName {
-    async fn to_card_requests(
-        &self,
-        store: &mut CardStore<'_>,
-    ) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
+    async fn to_card_requests(&self, store: &mut CardStore<'_>) -> Result<Vec<CardRequest>> {
         store.get_card_requests_from_set_name(&self.0).await
     }
 }
@@ -105,11 +99,11 @@ pub struct CardStore<'a> {
 type CardOverride<'a> = (&'a str, Option<String>, Option<String>, Option<String>);
 
 impl<'a> CardStore<'a> {
-    pub fn new(db: &'a mut DbStorage) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(db: &'a mut DbStorage) -> Result<Self> {
         Ok(Self { db })
     }
 
-    pub async fn get_all_card_names(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    pub async fn get_all_card_names(&mut self) -> Result<Vec<String>> {
         let query = "SELECT DISTINCT title FROM cards ORDER BY title";
         let payloads = self.db.execute(query).await?;
         let mut names = Vec::new();
@@ -128,7 +122,7 @@ impl<'a> CardStore<'a> {
     async fn parse_cardlist_into_card_requests(
         &mut self,
         text: &str,
-    ) -> Result<(Vec<CardRequest>, Vec<String>), Box<dyn std::error::Error>> {
+    ) -> Result<(Vec<CardRequest>, Vec<String>)> {
         type CardlistEntry<'a> = (&'a str, u32, Option<String>, Option<String>, Option<String>);
         let mut entries: Vec<CardlistEntry> = Vec::new();
 
@@ -194,14 +188,16 @@ impl<'a> CardStore<'a> {
         }
     }
 
-    pub fn parse_overrides(text: &str) -> Result<CardOverride<'_>, Box<dyn std::error::Error>> {
+    pub fn parse_overrides(text: &str) -> Result<CardOverride<'_>> {
         if let Some(bracket_start) = text.find('[') {
             let name = text[..bracket_start].trim();
-            let bracket_end = text.find(']').ok_or("Unclosed bracket in card override")?;
+            let bracket_end = text.find(']').ok_or_else(|| {
+                ProxyNexusError::Internal("Unclosed bracket in card override".into())
+            })?;
 
             let inner = &text[bracket_start + 1..bracket_end];
             if inner.trim().is_empty() {
-                return Err("Empty override brackets".into());
+                return Err(ProxyNexusError::Internal("Empty override brackets".into()));
             }
 
             let parts: Vec<Option<String>> = inner
@@ -229,8 +225,7 @@ impl<'a> CardStore<'a> {
     async fn resolve_names_to_cards(
         &mut self,
         names: &[&str],
-    ) -> Result<(HashMap<String, (String, String, String)>, Vec<String>), Box<dyn std::error::Error>>
-    {
+    ) -> Result<(HashMap<String, (String, String, String)>, Vec<String>)> {
         let normalized_name_map: HashMap<&str, String> = names
             .iter()
             .map(|&name| (name, normalize_title(name)))
@@ -266,9 +261,9 @@ impl<'a> CardStore<'a> {
         }
 
         if resolved_map.is_empty() && !names.is_empty() {
-            return Err(
+            return Err(ProxyNexusError::Internal(
                 "No card titles found in the local catalog. Is your catalog seeded?".into(),
-            );
+            ));
         }
 
         let mut title_to_card: HashMap<String, (String, String, String)> = HashMap::new();
@@ -285,9 +280,7 @@ impl<'a> CardStore<'a> {
         Ok((title_to_card, not_found))
     }
 
-    pub async fn get_available_packs(
-        &mut self,
-    ) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
+    pub async fn get_available_packs(&mut self) -> Result<Vec<(String, String)>> {
         let query = "
             SELECT
                 p.name as pack_name,
@@ -360,7 +353,7 @@ impl<'a> CardStore<'a> {
     async fn get_card_requests_from_set_name(
         &mut self,
         set_name: &str,
-    ) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<CardRequest>> {
         let query = format!(
             "SELECT c.code, c.title, c.quantity, c.pack_code
              FROM cards c
@@ -391,7 +384,10 @@ impl<'a> CardStore<'a> {
         }
 
         if results.is_empty() {
-            return Err(format!("No cards found for set '{}'", set_name).into());
+            return Err(ProxyNexusError::Internal(format!(
+                "No cards found for set '{}'",
+                set_name
+            )));
         }
 
         Ok(results)
@@ -400,7 +396,7 @@ impl<'a> CardStore<'a> {
     pub async fn resolve_codes_to_card_requests(
         &mut self,
         codes: &HashMap<String, u32>,
-    ) -> Result<Vec<CardRequest>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<CardRequest>> {
         if codes.is_empty() {
             return Ok(Vec::new());
         }
@@ -423,7 +419,9 @@ impl<'a> CardStore<'a> {
         }
 
         if resolved_titles.is_empty() && !codes.is_empty() {
-            return Err("No card codes found in the local catalog. Is your catalog seeded?".into());
+            return Err(ProxyNexusError::Internal(
+                "No card codes found in the local catalog. Is your catalog seeded?".into(),
+            ));
         }
 
         let mut requests = Vec::new();
@@ -454,7 +452,7 @@ impl<'a> CardStore<'a> {
     pub async fn get_available_printings(
         &mut self,
         card_requests: &[CardRequest],
-    ) -> Result<HashMap<String, Vec<Printing>>, Box<dyn std::error::Error>> {
+    ) -> Result<HashMap<String, Vec<Printing>>> {
         let unique_titles: HashSet<String> = card_requests
             .iter()
             .map(|r| normalize_title(&r.title))
@@ -481,7 +479,9 @@ impl<'a> CardStore<'a> {
         }
 
         if resolved_printings.is_empty() && !card_requests.is_empty() {
-            return Err("No printings found in your collections for any requested cards.".into());
+            return Err(ProxyNexusError::Internal(
+                "No printings found in your collections for any requested cards.".into(),
+            ));
         }
 
         let mut missing_titles = HashSet::new();
@@ -564,7 +564,7 @@ impl<'a> CardStore<'a> {
         &self,
         requests: &[CardRequest],
         available: &HashMap<String, Vec<Printing>>,
-    ) -> Result<Vec<Printing>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<Printing>> {
         let mut result = Vec::new();
 
         for request in requests {
@@ -587,10 +587,7 @@ impl<'a> CardStore<'a> {
         Ok(result)
     }
 
-    pub fn select_printing(
-        request: &CardRequest,
-        printings: &[Printing],
-    ) -> Result<Printing, Box<dyn std::error::Error>> {
+    pub fn select_printing(request: &CardRequest, printings: &[Printing]) -> Result<Printing> {
         let mut candidates: Vec<&Printing> = printings.iter().collect();
 
         let target_variant = request.variant.as_deref().unwrap_or("original");
@@ -606,11 +603,12 @@ impl<'a> CardStore<'a> {
             )
         });
 
-        candidates
-            .into_iter()
-            .next()
-            .cloned()
-            .ok_or_else(|| format!("No matching printing found for '{}'", request.title).into())
+        candidates.into_iter().next().cloned().ok_or_else(|| {
+            ProxyNexusError::Internal(format!(
+                "No matching printing found for '{}'",
+                request.title
+            ))
+        })
     }
 }
 

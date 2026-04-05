@@ -1,3 +1,4 @@
+use crate::error::{ProxyNexusError, Result};
 use gluesql::FromGlueRow;
 use gluesql::prelude::*;
 
@@ -79,7 +80,7 @@ impl DbStorage {
         Self::Memory(Glue::new(storage))
     }
 
-    pub async fn execute(&mut self, sql: &str) -> Result<Vec<Payload>, Error> {
+    pub async fn execute(&mut self, sql: &str) -> std::result::Result<Vec<Payload>, Error> {
         match self {
             #[cfg(target_arch = "wasm32")]
             DbStorage::Memory(glue) => glue.execute(sql).await,
@@ -89,7 +90,7 @@ impl DbStorage {
         }
     }
 
-    pub async fn get_next_id(&mut self, table_name: &str) -> crate::error::Result<i64> {
+    pub async fn get_next_id(&mut self, table_name: &str) -> Result<i64> {
         let query = format!("SELECT id FROM {} ORDER BY id DESC LIMIT 1", table_name);
         let payloads = self.execute(&query).await?;
 
@@ -152,7 +153,7 @@ impl DbStorage {
         Ok(())
     }
 
-    pub async fn export_sql(&mut self, path: &std::path::Path) -> crate::error::Result<()> {
+    pub async fn export_sql(&mut self, path: &std::path::Path) -> Result<()> {
         let mut sql = String::new();
 
         let meta_payloads = self.execute("SELECT * FROM meta").await?;
@@ -284,7 +285,7 @@ impl DbStorage {
             }
         }
 
-        std::fs::write(path, sql)?;
+        std::fs::write(path, sql).map_err(ProxyNexusError::Io)?;
         Ok(())
     }
 }
