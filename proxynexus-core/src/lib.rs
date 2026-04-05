@@ -1,4 +1,3 @@
-pub mod error;
 pub mod card_source;
 pub mod card_store;
 #[cfg(not(target_arch = "wasm32"))]
@@ -8,6 +7,7 @@ pub mod collection_builder;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod collection_manager;
 pub mod db_storage;
+pub mod error;
 pub mod image_provider;
 pub mod models;
 pub mod mpc;

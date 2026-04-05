@@ -65,8 +65,11 @@ pub enum DbStorage {
 
 impl DbStorage {
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_sled(path: impl AsRef<std::path::Path>) -> Result<Self, Box<dyn std::error::Error>> {
-        let storage = SledStorage::new(path.as_ref().to_str().ok_or("Invalid path")?)?;
+    pub fn new_sled(path: impl AsRef<std::path::Path>) -> crate::error::Result<Self> {
+        let storage =
+            SledStorage::new(path.as_ref().to_str().ok_or_else(|| {
+                crate::error::ProxyNexusError::Internal("Invalid path".to_string())
+            })?)?;
         Ok(Self::Sled(Glue::new(storage)))
     }
 
@@ -86,10 +89,7 @@ impl DbStorage {
         }
     }
 
-    pub async fn get_next_id(
-        &mut self,
-        table_name: &str,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    pub async fn get_next_id(&mut self, table_name: &str) -> crate::error::Result<i64> {
         let query = format!("SELECT id FROM {} ORDER BY id DESC LIMIT 1", table_name);
         let payloads = self.execute(&query).await?;
 
@@ -105,7 +105,7 @@ impl DbStorage {
         Ok(next_id)
     }
 
-    pub async fn initialize_schema(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn initialize_schema(&mut self) -> crate::error::Result<()> {
         self.execute(
             "
             CREATE TABLE IF NOT EXISTS meta (
@@ -152,10 +152,7 @@ impl DbStorage {
         Ok(())
     }
 
-    pub async fn export_sql(
-        &mut self,
-        path: &std::path::Path,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn export_sql(&mut self, path: &std::path::Path) -> crate::error::Result<()> {
         let mut sql = String::new();
 
         let meta_payloads = self.execute("SELECT * FROM meta").await?;

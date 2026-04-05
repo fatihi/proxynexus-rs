@@ -5,6 +5,9 @@ pub enum ProxyNexusError {
     #[error("Database error: {0}")]
     Database(#[from] gluesql::core::error::Error),
 
+    #[error("Row conversion error: {0}")]
+    RowConversion(#[from] gluesql::core::error::RowConversionError),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
