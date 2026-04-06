@@ -67,10 +67,11 @@ pub enum DbStorage {
 impl DbStorage {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn new_sled(path: impl AsRef<std::path::Path>) -> Result<Self> {
-        let storage =
-            SledStorage::new(path.as_ref().to_str().ok_or_else(|| {
-                ProxyNexusError::Internal("Invalid path".to_string())
-            })?)?;
+        let storage = SledStorage::new(
+            path.as_ref()
+                .to_str()
+                .ok_or_else(|| ProxyNexusError::Internal("Invalid path".to_string()))?,
+        )?;
         Ok(Self::Sled(Glue::new(storage)))
     }
 

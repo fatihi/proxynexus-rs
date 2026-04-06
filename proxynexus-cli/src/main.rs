@@ -1,3 +1,4 @@
+use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
 use proxynexus_core::card_source::{CardSource, Cardlist, NrdbUrl, SetName};
 use proxynexus_core::catalog::Catalog;
@@ -5,6 +6,7 @@ use proxynexus_core::collection_builder::build_collection;
 use proxynexus_core::collection_manager::CollectionManager;
 use proxynexus_core::db_storage::DbStorage;
 use proxynexus_core::image_provider::LocalImageProvider;
+use proxynexus_core::models::Printing;
 use proxynexus_core::mpc::generate_mpc_zip;
 use proxynexus_core::pdf::{CutLines, PageSize, PdfOptions, generate_pdf};
 use proxynexus_core::query::{generate_query_output, list_available_sets};
@@ -152,33 +154,29 @@ enum GenerateType {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let cli = Cli::parse();
 
-    let home = dirs::home_dir().expect("Could not find home directory");
+    let home = dirs::home_dir().context("Could not find home directory")?;
     let proxynexus_dir = home.join(".proxynexus");
     let collections_dir = proxynexus_dir.join("collections");
 
-    if let Err(e) = std::fs::create_dir_all(&collections_dir) {
-        eprintln!("Error creating collections directory: {}", e);
-        std::process::exit(1);
-    }
+    std::fs::create_dir_all(&collections_dir).with_context(|| {
+        format!(
+            "Error creating collections directory at {:?}",
+            collections_dir
+        )
+    })?;
 
     let db_path = proxynexus_dir.join("proxynexus_data");
 
-    let mut db = match DbStorage::new_sled(&db_path) {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Error initializing database: {}", e);
-            std::process::exit(1);
-        }
-    };
+    let mut db = DbStorage::new_sled(&db_path)
+        .with_context(|| format!("Error initializing database at {:?}", db_path))?;
 
-    if let Err(e) = db.initialize_schema().await {
-        eprintln!("Error setting up database schema: {}", e);
-        std::process::exit(1);
-    }
+    db.initialize_schema()
+        .await
+        .context("Error setting up database schema")?;
 
     let image_provider = LocalImageProvider::new(collections_dir.clone());
 
@@ -188,7 +186,7 @@ async fn main() {
         eprintln!("Warning: Could not seed catalog: {}", e);
     }
 
-    let result = match cli.command {
+    match cli.command {
         Commands::Collection { action } => {
             handle_collection_action(action, &mut db, collections_dir, cli.verbose).await
         }
@@ -204,19 +202,12 @@ async fn main() {
         Commands::Catalog { action } => handle_catalog_action(action, &mut catalog).await,
         Commands::Export { output } => {
             println!("Exporting database to {:?}...", output);
-            match db.export_sql(&output).await {
-                Ok(_) => {
-                    println!("Database exported successfully!");
-                    Ok(())
-                }
-                Err(e) => Err(e),
-            }
+            db.export_sql(&output)
+                .await
+                .with_context(|| format!("Failed to export database to {:?}", output))?;
+            println!("Database exported successfully!");
+            Ok(())
         }
-    };
-
-    if let Err(e) = result {
-        eprintln!("Error: {}", e);
-        std::process::exit(1);
     }
 }
 
@@ -225,7 +216,7 @@ async fn handle_collection_action(
     db: &mut DbStorage,
     collections_dir: PathBuf,
     verbose: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     match action {
         CollectionAction::Build {
             output,
@@ -234,7 +225,8 @@ async fn handle_collection_action(
             version,
         } => {
             println!("Writing pnx file...");
-            let report = build_collection(&output, &images, language, version)?;
+            let report = build_collection(&output, &images, language, version)
+                .context("Failed to build collection")?;
             println!("Added {} printings", report.printings_added);
             println!("Collection created: {:?}", output);
             if verbose {
@@ -246,21 +238,21 @@ async fn handle_collection_action(
         }
         CollectionAction::Add { path } => {
             let mut manager = CollectionManager::new(db, collections_dir)
-                .map_err(|e| format!("Failed to initialize collection manager: {}", e))?;
+                .context("Failed to initialize collection manager")?;
             manager
                 .add_collection(&path)
                 .await
-                .map_err(|e| format!("Failed to add collection: {}", e))?;
+                .with_context(|| format!("Failed to add collection from {:?}", path))?;
             println!("Collection added successfully");
             Ok(())
         }
         CollectionAction::List => {
             let mut manager = CollectionManager::new(db, collections_dir)
-                .map_err(|e| format!("Failed to initialize collection manager: {}", e))?;
+                .context("Failed to initialize collection manager")?;
             let collections = manager
                 .get_collections()
                 .await
-                .map_err(|e| format!("Failed to list collections: {}", e))?;
+                .context("Failed to list collections")?;
 
             if collections.is_empty() {
                 println!("No collections available. Use 'collection add <file.pnx>' to add one.");
@@ -274,10 +266,17 @@ async fn handle_collection_action(
         }
         CollectionAction::Remove { name } => {
             let mut manager = CollectionManager::new(db, collections_dir)
-                .map_err(|e| format!("Failed to initialize collection manager: {}", e))?;
+                .context("Failed to initialize collection manager")?;
 
-            if !manager.collection_exists(&name).await? {
-                return Err(format!("Collection '{}' not found. Run 'collection list' to see available collections.", name).into());
+            if !manager
+                .collection_exists(&name)
+                .await
+                .context("Failed to check if collection exists")?
+            {
+                return Err(anyhow!(
+                    "Collection '{}' not found. Run 'collection list' to see available collections.",
+                    name
+                ));
             }
 
             println!(
@@ -286,13 +285,15 @@ async fn handle_collection_action(
             );
 
             let mut input = String::new();
-            std::io::stdin().read_line(&mut input)?;
+            std::io::stdin()
+                .read_line(&mut input)
+                .context("Failed to read user input")?;
 
             if input.trim().to_lowercase() == "y" {
                 manager
                     .remove_collection(&name)
                     .await
-                    .map_err(|e| format!("Failed to remove collection: {}", e))?;
+                    .with_context(|| format!("Failed to remove collection: {}", name))?;
                 println!("Collection '{}' removed successfully.", name);
             }
             Ok(())
@@ -303,19 +304,33 @@ async fn handle_collection_action(
 async fn handle_catalog_action(
     action: CatalogAction,
     catalog: &mut Catalog<'_>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     match action {
         CatalogAction::Update => {
             println!("Fetching latest card data from NetrunnerDB...");
-            catalog.update_from_api().await?;
+            catalog
+                .update_from_api()
+                .await
+                .context("Failed to update catalog from API")?;
             println!("Card catalog updated successfully!");
         }
         CatalogAction::Info => {
-            println!("{}", catalog.get_info().await?);
+            println!(
+                "{}",
+                catalog
+                    .get_info()
+                    .await
+                    .context("Failed to get catalog info")?
+            );
         }
         CatalogAction::Import { cards, packs } => {
             println!("Loading card data from local files...");
-            catalog.update_catalog_from_files(&cards, &packs).await?;
+            catalog
+                .update_catalog_from_files(&cards, &packs)
+                .await
+                .with_context(|| {
+                    format!("Failed to import catalog from {:?} and {:?}", cards, packs)
+                })?;
             println!("Card catalog updated successfully!");
         }
     }
@@ -344,13 +359,43 @@ fn determine_input_source(
     }
 }
 
+async fn get_printings_from_source(
+    db: &mut DbStorage,
+    source: InputSource,
+) -> anyhow::Result<Vec<Printing>> {
+    let mut store = proxynexus_core::card_store::CardStore::new(db)
+        .context("Failed to initialize card store")?;
+
+    let card_requests = match source {
+        InputSource::Cardlist(list) => Cardlist(list)
+            .to_card_requests(&mut store)
+            .await
+            .context("Failed to parse cardlist")?,
+        InputSource::SetName(name) => SetName(name.clone())
+            .to_card_requests(&mut store)
+            .await
+            .with_context(|| format!("Failed to get cards for set '{}'", name))?,
+        InputSource::NrdbUrl(url) => NrdbUrl(url.clone())
+            .to_card_requests(&mut store)
+            .await
+            .with_context(|| format!("Failed to fetch deck from NetrunnerDB URL: {}", url))?,
+    };
+
+    let available = store
+        .get_available_printings(&card_requests)
+        .await
+        .context("Failed to get available printings")?;
+
+    store
+        .resolve_printings(&card_requests, &available)
+        .context("Failed to resolve printings")
+}
+
 async fn handle_generate(
     db: &mut DbStorage,
     image_provider: &LocalImageProvider,
     output_type: GenerateType,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut store = proxynexus_core::card_store::CardStore::new(db)?;
-
+) -> anyhow::Result<()> {
     match output_type {
         GenerateType::Pdf {
             cardlist,
@@ -361,28 +406,14 @@ async fn handle_generate(
             cut_lines,
             print_layout,
         } => {
-            let page_size_enum = parse_page_size(&page_size)?;
-            let cut_lines_enum = parse_cut_lines(cut_lines.as_deref())?;
-            let print_layout_enum = parse_print_layout(&print_layout)?;
+            let page_size_enum = parse_page_size(&page_size).context("Invalid page size")?;
+            let cut_lines_enum =
+                parse_cut_lines(cut_lines.as_deref()).context("Invalid cut lines option")?;
+            let print_layout_enum =
+                parse_print_layout(&print_layout).context("Invalid print layout option")?;
             let source = determine_input_source(cardlist, set_name, nrdb_url);
 
-            let printings = match source {
-                InputSource::Cardlist(list) => {
-                    let card_requests = Cardlist(list).to_card_requests(&mut store).await?;
-                    let available = store.get_available_printings(&card_requests).await?;
-                    store.resolve_printings(&card_requests, &available)?
-                }
-                InputSource::SetName(name) => {
-                    let reqs = SetName(name).to_card_requests(&mut store).await?;
-                    let available = store.get_available_printings(&reqs).await?;
-                    store.resolve_printings(&reqs, &available)?
-                }
-                InputSource::NrdbUrl(url) => {
-                    let reqs = NrdbUrl(url).to_card_requests(&mut store).await?;
-                    let available = store.get_available_printings(&reqs).await?;
-                    store.resolve_printings(&reqs, &available)?
-                }
-            };
+            let printings = get_printings_from_source(db, source).await?;
 
             let pdf_bytes = generate_pdf(
                 printings,
@@ -394,9 +425,11 @@ async fn handle_generate(
                 },
                 None,
             )
-            .await?;
+            .await
+            .context("Failed to generate PDF")?;
 
-            std::fs::write(&output_path, pdf_bytes)?;
+            std::fs::write(&output_path, pdf_bytes)
+                .with_context(|| format!("Failed to write PDF to {:?}", output_path))?;
             println!("PDF created successfully: {:?}", output_path);
             Ok(())
         }
@@ -410,37 +443,28 @@ async fn handle_generate(
             let source = determine_input_source(cardlist, set_name, nrdb_url);
             let start = Instant::now();
 
-            let printings = match source {
-                InputSource::Cardlist(list) => {
-                    let reqs = Cardlist(list).to_card_requests(&mut store).await?;
-                    let available = store.get_available_printings(&reqs).await?;
-                    store.resolve_printings(&reqs, &available)?
-                }
-                InputSource::SetName(name) => {
-                    let reqs = SetName(name).to_card_requests(&mut store).await?;
-                    let available = store.get_available_printings(&reqs).await?;
-                    store.resolve_printings(&reqs, &available)?
-                }
-                InputSource::NrdbUrl(url) => {
-                    let reqs = NrdbUrl(url).to_card_requests(&mut store).await?;
-                    let available = store.get_available_printings(&reqs).await?;
-                    store.resolve_printings(&reqs, &available)?
-                }
-            };
+            let printings = get_printings_from_source(db, source).await?;
 
-            let mpc_bytes = generate_mpc_zip(printings, image_provider, None).await?;
+            let mpc_bytes = generate_mpc_zip(printings, image_provider, None)
+                .await
+                .context("Failed to generate MPC ZIP")?;
 
-            std::fs::write(&output_path, mpc_bytes)?;
+            std::fs::write(&output_path, mpc_bytes)
+                .with_context(|| format!("Failed to write ZIP to {:?}", output_path))?;
             info!("runtime: {:?}", start.elapsed());
             println!("MPC ZIP created successfully: {:?}", output_path);
             Ok(())
         }
         GenerateType::Bleed { input_dir } => {
             let output_dir = input_dir.join("bleeds");
-            std::fs::create_dir_all(&output_dir)?;
+            std::fs::create_dir_all(&output_dir).with_context(|| {
+                format!("Failed to create output directory at {:?}", output_dir)
+            })?;
             let mut count = 0;
-            for entry in std::fs::read_dir(&input_dir)? {
-                let entry = entry?;
+            for entry in std::fs::read_dir(&input_dir)
+                .with_context(|| format!("Failed to read input directory {:?}", input_dir))?
+            {
+                let entry = entry.context("Failed to read directory entry")?;
                 let path = entry.path();
                 if path.is_file() {
                     let ext = path
@@ -458,7 +482,9 @@ async fn handle_generate(
                         ) {
                             let file_name = path.file_name().unwrap();
                             let out_path = output_dir.join(file_name).with_extension("png");
-                            std::fs::write(&out_path, encoded)?;
+                            std::fs::write(&out_path, encoded).with_context(|| {
+                                format!("Failed to write bleed image to {:?}", out_path)
+                            })?;
                             println!("Processed {:?}", path);
                             count += 1;
                         }
@@ -477,10 +503,15 @@ async fn handle_query(
     set_name: Option<String>,
     nrdb_url: Option<String>,
     list_sets: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     if list_sets {
         println!("\nAvailable Sets:\n");
-        println!("{}", list_available_sets(db).await?);
+        println!(
+            "{}",
+            list_available_sets(db)
+                .await
+                .context("Failed to list available sets")?
+        );
         return Ok(());
     }
 
@@ -493,41 +524,41 @@ async fn handle_query(
     };
 
     println!("\nQuery Results:\n");
-    println!("{}", output?);
+    println!("{}", output.context("Query failed")?);
 
     Ok(())
 }
 
-fn parse_page_size(size: &str) -> Result<PageSize, String> {
+fn parse_page_size(size: &str) -> anyhow::Result<PageSize> {
     match size {
         "letter" => Ok(PageSize::Letter),
         "a4" => Ok(PageSize::A4),
-        _ => Err(format!(
+        _ => Err(anyhow!(
             "Unsupported page size: '{}'. Use 'letter' or 'a4'",
             size
         )),
     }
 }
 
-fn parse_cut_lines(cut_lines: Option<&str>) -> Result<CutLines, String> {
+fn parse_cut_lines(cut_lines: Option<&str>) -> anyhow::Result<CutLines> {
     match cut_lines {
         Some("none") => Ok(CutLines::None),
         None | Some("margins") => Ok(CutLines::Margins),
         Some("fullpage") => Ok(CutLines::FullPage),
-        Some(unsupported) => Err(format!(
+        Some(unsupported) => Err(anyhow!(
             "Unsupported cut lines option: '{}'. Options are 'none', 'margins', or 'fullpage'",
             unsupported
         )),
     }
 }
 
-fn parse_print_layout(layout: &str) -> Result<proxynexus_core::pdf::PrintLayout, String> {
+fn parse_print_layout(layout: &str) -> anyhow::Result<proxynexus_core::pdf::PrintLayout> {
     match layout {
         "edge-to-edge" => Ok(proxynexus_core::pdf::PrintLayout::EdgeToEdge),
         "small-margin" => Ok(proxynexus_core::pdf::PrintLayout::SmallMargin),
         "large-margin" => Ok(proxynexus_core::pdf::PrintLayout::LargeMargin),
         "gap" => Ok(proxynexus_core::pdf::PrintLayout::Gap),
-        _ => Err(format!(
+        _ => Err(anyhow!(
             "Unsupported print layout: '{}'. Options are 'edge-to-edge', 'small-margin', 'large-margin', 'gap'",
             layout
         )),
