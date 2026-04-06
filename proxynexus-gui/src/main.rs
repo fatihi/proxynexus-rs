@@ -6,7 +6,7 @@ use proxynexus_core::models::Printing;
 use proxynexus_core::query::{apply_variant_overrides, resolve_query_printings};
 use std::collections::HashMap;
 use std::time::Duration;
-use tracing::error;
+use tracing::{error, info};
 use tracing_subscriber::{
     EnvFilter, filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt,
 };
@@ -166,32 +166,33 @@ fn get_db_storage() -> DbStorage {
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn hydrate_wasm_db(db: &mut DbStorage) -> Result<(), String> {
+async fn hydrate_wasm_db(db: &mut DbStorage) -> anyhow::Result<()> {
+    use anyhow::{Context, anyhow};
     use gloo_net::http::Request;
 
     let url = format!("/init.sql?t={}", js_sys::Date::now());
     let response = Request::get(&url)
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch init.sql: {}", e))?;
+        .map_err(|e| anyhow!("Failed to fetch init.sql: {}", e))?;
 
     if !response.ok() {
-        return Err(format!(
+        return Err(anyhow!(
             "Failed to fetch init.sql: HTTP {}",
             response.status()
         ));
     }
 
-    let sql = response
+    let sql: String = response
         .text()
         .await
-        .map_err(|e| format!("Failed to read init.sql text: {}", e))?;
+        .map_err(|e| anyhow!("Failed to read init.sql text: {}", e))?;
 
     info!("Executing init.sql (size: {} bytes)...", sql.len());
 
     db.execute(&sql)
         .await
-        .map_err(|e| format!("Hydration execution error: {}", e))?;
+        .context("Hydration execution error")?;
 
     info!("WASM Hydration Complete!");
     Ok(())
@@ -207,13 +208,13 @@ fn App() -> Element {
             let mut db = db_signal.write();
 
             if let Err(e) = db.initialize_schema().await {
-                error!("Schema init failed: {}", e);
+                error!("Schema init failed: {:?}", e);
             }
 
             #[cfg(target_arch = "wasm32")]
             {
                 if let Err(e) = hydrate_wasm_db(&mut db).await {
-                    error!("WASM Hydration failed: {}", e);
+                    error!("WASM Hydration failed: {:?}", e);
                 }
             }
 
@@ -276,19 +277,25 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
                 if text.trim().is_empty() {
                     return Ok((Vec::new(), HashMap::new()));
                 }
-                resolve_query_printings(&Cardlist(text), &mut db).await
+                resolve_query_printings(&Cardlist(text), &mut db)
+                    .await
+                    .map_err(anyhow::Error::from)
             }
             ActiveSource::SetName(name) => {
                 if name.trim().is_empty() {
                     return Ok((Vec::new(), HashMap::new()));
                 }
-                resolve_query_printings(&SetName(name), &mut db).await
+                resolve_query_printings(&SetName(name), &mut db)
+                    .await
+                    .map_err(anyhow::Error::from)
             }
             ActiveSource::NrdbUrl(url) => {
                 if url.trim().is_empty() {
                     return Ok((Vec::new(), HashMap::new()));
                 }
-                resolve_query_printings(&NrdbUrl(url), &mut db).await
+                resolve_query_printings(&NrdbUrl(url), &mut db)
+                    .await
+                    .map_err(anyhow::Error::from)
             }
         };
 
@@ -315,7 +322,7 @@ fn Workspace(db_signal: Signal<DbStorage>) -> Element {
                 );
                 Some(Ok((base.clone(), applied, available.clone())))
             }
-            Err(e) => Some(Err(e.to_string())),
+            Err(e) => Some(Err(format!("{:?}", e))),
         }
     });
 

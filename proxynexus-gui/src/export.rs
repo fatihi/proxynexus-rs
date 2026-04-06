@@ -1,6 +1,7 @@
 use crate::analytics;
 use crate::components::export_controls::ExportConfig;
 use crate::components::source_selector::ActiveSource;
+use anyhow::Context;
 use dioxus::prelude::*;
 use proxynexus_core::card_source::{CardSource, Cardlist, NrdbUrl, SetName};
 use proxynexus_core::db_storage::DbStorage;
@@ -55,16 +56,6 @@ pub async fn run_export(
         }
     }));
 
-    #[cfg(not(target_arch = "wasm32"))]
-    let provider = {
-        let home = dirs::home_dir().expect("Could not find home directory");
-        let collections_path = home.join(".proxynexus").join("collections");
-        proxynexus_core::image_provider::LocalImageProvider::new(collections_path)
-    };
-
-    #[cfg(target_arch = "wasm32")]
-    let provider = proxynexus_core::image_provider::RemoteImageProvider;
-
     let meta = match config.clone() {
         ExportConfig::Pdf(options) => ExportMeta {
             format: "pdf",
@@ -90,65 +81,48 @@ pub async fn run_export(
         atomic_progress.store((p * 1000.0) as u32, Ordering::Relaxed);
     }) as Box<dyn Fn(f32) + Send + Sync>);
 
-    let (source_text, source_type, resolved_printings) = {
-        let mut db = db_signal.write();
-        let mut store =
-            proxynexus_core::card_store::CardStore::new(&mut db).expect("Failed to create store");
-
-        match active_source {
-            ActiveSource::Cardlist(text) => {
-                let source_text = text.clone();
-                let source = Cardlist(text);
-                let res = async {
-                    let reqs = source.to_card_requests(&mut store).await?;
-                    let available = store.get_available_printings(&reqs).await?;
-                    let base = store.resolve_printings(&reqs, &available)?;
-                    Ok(apply_variant_overrides(
-                        &base,
-                        &available,
-                        &global_overrides,
-                        &index_overrides,
-                    ))
-                }
-                .await;
-                (source_text, "Cardlist", res)
-            }
-            ActiveSource::SetName(name) => {
-                let source_text = name.clone();
-                let source = SetName(name);
-                let res = async {
-                    let reqs = source.to_card_requests(&mut store).await?;
-                    let available = store.get_available_printings(&reqs).await?;
-                    let base = store.resolve_printings(&reqs, &available)?;
-                    Ok(apply_variant_overrides(
-                        &base,
-                        &available,
-                        &global_overrides,
-                        &index_overrides,
-                    ))
-                }
-                .await;
-                (source_text, "SetName", res)
-            }
-            ActiveSource::NrdbUrl(url) => {
-                let source_text = url.clone();
-                let source = NrdbUrl(url);
-                let res = async {
-                    let reqs = source.to_card_requests(&mut store).await?;
-                    let available = store.get_available_printings(&reqs).await?;
-                    let base = store.resolve_printings(&reqs, &available)?;
-                    Ok(apply_variant_overrides(
-                        &base,
-                        &available,
-                        &global_overrides,
-                        &index_overrides,
-                    ))
-                }
-                .await;
-                (source_text, "NrdbUrl", res)
-            }
-        }
+    let (source_text, source_type) = match &active_source {
+        ActiveSource::Cardlist(text) => (text.clone(), "Cardlist"),
+        ActiveSource::SetName(name) => (name.clone(), "SetName"),
+        ActiveSource::NrdbUrl(url) => (url.clone(), "NrdbUrl"),
     };
+
+    let resolved_printings = async {
+        let mut db = db_signal.write();
+        let mut store = proxynexus_core::card_store::CardStore::new(&mut db)
+            .context("Failed to create store")?;
+
+        let reqs = match active_source {
+            ActiveSource::Cardlist(text) => Cardlist(text)
+                .to_card_requests(&mut store)
+                .await
+                .context("Failed to parse cardlist")?,
+            ActiveSource::SetName(name) => SetName(name)
+                .to_card_requests(&mut store)
+                .await
+                .context("Failed to get set cards")?,
+            ActiveSource::NrdbUrl(url) => NrdbUrl(url)
+                .to_card_requests(&mut store)
+                .await
+                .context("Failed to fetch deck from NetrunnerDB")?,
+        };
+
+        let available = store
+            .get_available_printings(&reqs)
+            .await
+            .context("Failed to get available printings")?;
+        let base = store
+            .resolve_printings(&reqs, &available)
+            .context("Failed to resolve printings")?;
+
+        Ok(apply_variant_overrides(
+            &base,
+            &available,
+            &global_overrides,
+            &index_overrides,
+        ))
+    }
+    .await;
 
     let selected_printings = if let Ok(ref printings) = resolved_printings {
         printings
@@ -164,14 +138,30 @@ pub async fn run_export(
         Vec::new()
     };
 
-    let result = match resolved_printings {
-        Ok(printings) => match config {
+    #[cfg(not(target_arch = "wasm32"))]
+    let image_provider_result = dirs::home_dir()
+        .context("Could not find home directory")
+        .map(|home| {
+            let collections_path = home.join(".proxynexus").join("collections");
+            proxynexus_core::image_provider::LocalImageProvider::new(collections_path)
+        });
+
+    #[cfg(target_arch = "wasm32")]
+    let image_provider_result = Ok(proxynexus_core::image_provider::RemoteImageProvider);
+
+    let result = match (resolved_printings, image_provider_result) {
+        (Ok(printings), Ok(image_provider)) => match config {
             ExportConfig::Pdf(options) => {
-                generate_pdf(printings, &provider, options, progress_callback).await
+                generate_pdf(printings, &image_provider, options, progress_callback)
+                    .await
+                    .context("PDF generation failed")
             }
-            ExportConfig::Mpc => generate_mpc_zip(printings, &provider, progress_callback).await,
+            ExportConfig::Mpc => generate_mpc_zip(printings, &image_provider, progress_callback)
+                .await
+                .context("MPC ZIP generation failed"),
         },
-        Err(e) => Err(e),
+        (Err(e), _) => Err(e),
+        (_, Err(e)) => Err(e),
     };
 
     let mut success = false;
@@ -195,7 +185,7 @@ pub async fn run_export(
             }
         }
         Err(e) => {
-            let msg = format!("Failed to generate {}: {}", meta.format, e);
+            let msg = format!("Failed to generate {}: {:?}", meta.format, e);
             error!("{}", msg);
             error_message = Some(msg);
         }
@@ -226,14 +216,16 @@ async fn save_file(
     filter_name: &str,
     extension: &str,
     _mime_type: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     if let Some(path) = rfd::AsyncFileDialog::new()
         .add_filter(filter_name, &[extension])
         .set_file_name(file_name)
         .save_file()
         .await
     {
-        tokio::fs::write(path.path(), bytes).await?;
+        tokio::fs::write(path.path(), bytes)
+            .await
+            .context("Failed to write to disk")?;
         info!("Saved successfully to {:?}", path.path());
     } else {
         info!("User cancelled the save dialog.");
@@ -249,32 +241,37 @@ async fn save_file(
     _filter_name: &str,
     _extension: &str,
     mime_type: &str,
-) -> Result<(), wasm_bindgen::JsValue> {
+) -> anyhow::Result<()> {
+    use anyhow::anyhow;
     use wasm_bindgen::JsCast;
 
-    let uint8_array = js_sys::Uint8Array::from(bytes);
-    let parts = js_sys::Array::of1(&uint8_array);
+    let res = (|| {
+        let uint8_array = js_sys::Uint8Array::from(bytes);
+        let parts = js_sys::Array::of1(&uint8_array);
 
-    let options = web_sys::BlobPropertyBag::new();
-    options.set_type(mime_type);
+        let options = web_sys::BlobPropertyBag::new();
+        options.set_type(mime_type);
 
-    let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &options)?;
-    let url = web_sys::Url::create_object_url_with_blob(&blob)?;
+        let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &options)?;
+        let url = web_sys::Url::create_object_url_with_blob(&blob)?;
 
-    let window = web_sys::window().ok_or_else(|| wasm_bindgen::JsValue::from_str("No window"))?;
-    let document = window
-        .document()
-        .ok_or_else(|| wasm_bindgen::JsValue::from_str("No document"))?;
+        let window =
+            web_sys::window().ok_or_else(|| wasm_bindgen::JsValue::from_str("No window"))?;
+        let document = window
+            .document()
+            .ok_or_else(|| wasm_bindgen::JsValue::from_str("No document"))?;
 
-    let a = document
-        .create_element("a")?
-        .dyn_into::<web_sys::HtmlElement>()?;
+        let a = document
+            .create_element("a")?
+            .dyn_into::<web_sys::HtmlElement>()?;
 
-    a.set_attribute("href", &url)?;
-    a.set_attribute("download", file_name)?;
-    a.click();
+        a.set_attribute("href", &url)?;
+        a.set_attribute("download", file_name)?;
+        a.click();
 
-    web_sys::Url::revoke_object_url(&url)?;
+        web_sys::Url::revoke_object_url(&url)?;
+        Ok::<(), wasm_bindgen::JsValue>(())
+    })();
 
-    Ok(())
+    res.map_err(|e| anyhow!("JS error saving file: {:?}", e))
 }
