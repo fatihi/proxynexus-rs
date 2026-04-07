@@ -313,3 +313,24 @@ pub fn build_in_clause(items: impl IntoIterator<Item = impl AsRef<str>>) -> Stri
         .collect::<Vec<_>>()
         .join(", ")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_quote_sql_string() {
+        assert_eq!(quote_sql_string("hello"), "'hello'");
+        assert_eq!(quote_sql_string("hello'world"), "'hello''world'");
+        assert_eq!(quote_sql_string(""), "''");
+        assert_eq!(quote_sql_string("'"), "''''");
+    }
+
+    #[test]
+    fn test_build_in_clause() {
+        assert_eq!(build_in_clause(vec!["a", "b", "c"]), "'a', 'b', 'c'");
+        assert_eq!(build_in_clause(vec!["O'Brian", "b"]), "'O''Brian', 'b'");
+        let empty: Vec<&str> = vec![];
+        assert_eq!(build_in_clause(empty), "");
+    }
+}

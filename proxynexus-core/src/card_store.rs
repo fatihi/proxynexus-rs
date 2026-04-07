@@ -716,7 +716,7 @@ mod tests {
         assert_eq!(result.variant, "original");
         assert_eq!(result.pack_code, "revised");
 
-        // Default to earliest original
+        // Default to the earliest original
         let req = CardRequest {
             title: "Sure Gamble".into(),
             code: "01050".into(),
@@ -812,5 +812,85 @@ mod tests {
         // Case normalization in overrides
         let (_, v, _, _) = CardStore::parse_overrides("Card [ALT]").unwrap();
         assert_eq!(v, Some("alt".to_string()));
+    }
+
+    #[test]
+    fn test_normalize_title() {
+        assert_eq!(normalize_title("Sure Gamble"), "sure_gamble");
+        assert_eq!(normalize_title("Snare!"), "snare_");
+        assert_eq!(normalize_title("Café"), "cafe");
+        assert_eq!(normalize_title("piñata"), "pinata");
+    }
+
+    fn get_mock_available_printings() -> HashMap<String, Vec<Printing>> {
+        let mut available = HashMap::new();
+        let p1 = mock_printing("01050", "original", "ffg-en", "core", Some("2012-12-01"));
+        let p2 = mock_printing("01050", "alt1", "standard", "core", Some("2012-12-01"));
+        let p3 = mock_printing(
+            "20050",
+            "original",
+            "alt-arts",
+            "revised",
+            Some("2017-01-01"),
+        );
+        let p_collection = mock_printing(
+            "01050",
+            "original",
+            "alt-arts",
+            "revised",
+            Some("2017-01-01"),
+        );
+        available.insert("sure_gamble".to_string(), vec![p1, p2, p3, p_collection]);
+        available
+    }
+
+    #[test]
+    fn test_resolve_printings() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut db = DbStorage::new_sled(temp_dir.path()).unwrap();
+        let store = CardStore::new(&mut db).unwrap();
+
+        let mut available = get_mock_available_printings();
+        available.insert(
+            "snare_".to_string(),
+            vec![mock_printing(
+                "01051",
+                "original",
+                "ffg-en",
+                "core",
+                Some("2012-12-01"),
+            )],
+        );
+
+        let req1 = CardRequest {
+            title: "Sure Gamble".into(),
+            code: "01050".into(),
+            variant: None,
+            collection: None,
+            pack_code: None,
+        };
+        let req2 = CardRequest {
+            title: "Missing Card".into(),
+            code: "99999".into(),
+            variant: None,
+            collection: None,
+            pack_code: None,
+        };
+        let req3 = CardRequest {
+            title: "Snare!".into(),
+            code: "01051".into(),
+            variant: None,
+            collection: None,
+            pack_code: None,
+        };
+
+        let result = store
+            .resolve_printings(&[req1, req2, req3], &available)
+            .unwrap();
+
+        // Only 2 printings resolved, missing card was skipped safely
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].card_code, "01050");
+        assert_eq!(result[1].card_code, "01051");
     }
 }

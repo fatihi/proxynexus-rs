@@ -170,4 +170,36 @@ mod tests {
         apply_uniqueness_marker(&mut img, 5);
         apply_uniqueness_marker(&mut img, 100);
     }
+
+    #[test]
+    fn test_apply_uniqueness_marker_hashes() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut img1 = RgbImage::new(100, 100);
+        for p in img1.pixels_mut() {
+            *p = image::Rgb([255, 255, 255]);
+        }
+        let mut img2 = img1.clone();
+
+        apply_uniqueness_marker(&mut img1, 1);
+        apply_uniqueness_marker(&mut img2, 2);
+
+        fn hash_img(img: &RgbImage) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            img.as_raw().hash(&mut hasher);
+            hasher.finish()
+        }
+
+        assert_ne!(hash_img(&img1), hash_img(&img2));
+    }
+
+    #[test]
+    fn test_add_bleed_border() {
+        let img = DynamicImage::ImageRgb8(RgbImage::new(744, 1038));
+        let bordered = add_bleed_border(&img);
+
+        assert_eq!(bordered.width(), 816);
+        assert_eq!(bordered.height(), 1110);
+    }
 }

@@ -47,9 +47,7 @@ async fn fetch_codes_from_nrdb_url(url: &str) -> Result<HashMap<String, u32>> {
 
         #[cfg(target_arch = "wasm32")]
         {
-            let http_response = gloo_net::http::Request::get(&api_url)
-                .send()
-                .await?;
+            let http_response = gloo_net::http::Request::get(&api_url).send().await?;
 
             if !http_response.ok() {
                 return Err(ProxyNexusError::Internal(format!(

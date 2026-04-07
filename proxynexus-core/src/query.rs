@@ -146,3 +146,116 @@ fn format_query_output(
 
     Ok(lines.join("\n"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Printing;
+    use std::collections::HashMap;
+
+    fn mock_printing(code: &str, variant: &str, coll: &str, pack: &str) -> Printing {
+        Printing {
+            card_title: "Sure Gamble".into(),
+            card_code: code.into(),
+            variant: variant.into(),
+            image_key: format!("{}.jpg", code),
+            parts: Vec::new(),
+            collection: coll.into(),
+            side: "runner".into(),
+            pack_code: pack.into(),
+            date_release: None,
+        }
+    }
+
+    #[test]
+    fn test_apply_variant_overrides_global() {
+        let base_p = mock_printing("01050", "original", "ffg-en", "core");
+        let alt_p = mock_printing("20050", "alt1", "standard", "revised");
+
+        let base = vec![base_p.clone(), base_p.clone()];
+
+        let mut available = HashMap::new();
+        available.insert("sure_gamble".into(), vec![base_p.clone(), alt_p.clone()]);
+
+        let mut global_overrides = HashMap::new();
+        global_overrides.insert("sure_gamble".into(), "alt1:standard:revised".into());
+
+        let result = apply_variant_overrides(&base, &available, &global_overrides, &HashMap::new());
+        assert_eq!(result.len(), 2);
+
+        // Both occurrences should be overridden globally
+        for r in &result {
+            assert_eq!(r.card_code, "20050");
+            assert_eq!(r.variant, "alt1");
+            assert_eq!(r.collection, "standard");
+            assert_eq!(r.pack_code, "revised");
+        }
+    }
+
+    #[test]
+    fn test_apply_variant_overrides_index() {
+        let base_p = mock_printing("01050", "original", "ffg-en", "core");
+        let alt_p = mock_printing("20050", "alt1", "standard", "revised");
+
+        let base = vec![base_p.clone(), base_p.clone()];
+
+        let mut available = HashMap::new();
+        available.insert("sure_gamble".into(), vec![base_p.clone(), alt_p.clone()]);
+
+        let mut index_overrides = HashMap::new();
+        // Override only the second occurrence (index 1)
+        index_overrides.insert(("sure_gamble".into(), 1), "alt1:standard:revised".into());
+
+        let result = apply_variant_overrides(&base, &available, &HashMap::new(), &index_overrides);
+        assert_eq!(result.len(), 2);
+
+        // index 0: should remain original
+        assert_eq!(result[0].card_code, "01050");
+        assert_eq!(result[0].variant, "original");
+        assert_eq!(result[0].collection, "ffg-en");
+        assert_eq!(result[0].pack_code, "core");
+
+        // index 1: should be overridden
+        assert_eq!(result[1].card_code, "20050");
+        assert_eq!(result[1].variant, "alt1");
+        assert_eq!(result[1].collection, "standard");
+        assert_eq!(result[1].pack_code, "revised");
+    }
+
+    #[test]
+    fn test_apply_variant_overrides_index_precedence() {
+        let base_p = mock_printing("01050", "original", "ffg-en", "core");
+        let alt_p = mock_printing("20050", "alt1", "standard", "revised");
+        let promo_p = mock_printing("30050", "promo", "special", "promo-pack");
+
+        let base = vec![base_p.clone(), base_p.clone()];
+
+        let mut available = HashMap::new();
+        available.insert(
+            "sure_gamble".into(),
+            vec![base_p.clone(), alt_p.clone(), promo_p.clone()],
+        );
+
+        let mut global_overrides = HashMap::new();
+        global_overrides.insert("sure_gamble".into(), "alt1:standard:revised".into());
+
+        let mut index_overrides = HashMap::new();
+        index_overrides.insert(("sure_gamble".into(), 1), "promo:special:promo-pack".into());
+
+        let result =
+            apply_variant_overrides(&base, &available, &global_overrides, &index_overrides);
+        assert_eq!(result.len(), 2);
+
+        // index 0 uses global override
+        assert_eq!(result[0].card_code, "20050");
+        assert_eq!(result[0].variant, "alt1");
+        assert_eq!(result[0].collection, "standard");
+        assert_eq!(result[0].pack_code, "revised");
+
+        // index 1 uses index-specific override, which takes precedence
+        assert_eq!(result[1].card_code, "30050");
+        assert_eq!(result[1].variant, "promo");
+        assert_eq!(result[1].collection, "special");
+        assert_eq!(result[1].pack_code, "promo-pack");
+    }
+}
