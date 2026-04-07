@@ -287,7 +287,7 @@ impl DbStorage {
             }
         }
 
-        std::fs::write(path, sql).map_err(ProxyNexusError::Io)?;
+        std::fs::write(path, sql)?;
         Ok(())
     }
 }

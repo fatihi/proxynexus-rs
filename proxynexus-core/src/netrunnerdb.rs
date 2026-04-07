@@ -33,9 +33,7 @@ async fn fetch_codes_from_nrdb_url(url: &str) -> Result<HashMap<String, u32>> {
     let response: NrdbResponse = {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let http_response = reqwest::get(&api_url).await.map_err(|e| {
-                ProxyNexusError::Internal(format!("Failed to connect to NetrunnerDB: {}", e))
-            })?;
+            let http_response = reqwest::get(&api_url).await?;
 
             if !http_response.status().is_success() {
                 return Err(ProxyNexusError::Internal(format!(
@@ -44,19 +42,14 @@ async fn fetch_codes_from_nrdb_url(url: &str) -> Result<HashMap<String, u32>> {
                 )));
             }
 
-            http_response.json().await.map_err(|e| {
-                ProxyNexusError::Internal(format!("Failed to parse NetrunnerDB response: {}", e))
-            })?
+            http_response.json().await?
         }
 
         #[cfg(target_arch = "wasm32")]
         {
             let http_response = gloo_net::http::Request::get(&api_url)
                 .send()
-                .await
-                .map_err(|e| {
-                    ProxyNexusError::Internal(format!("Failed to connect to NetrunnerDB: {}", e))
-                })?;
+                .await?;
 
             if !http_response.ok() {
                 return Err(ProxyNexusError::Internal(format!(
@@ -65,9 +58,7 @@ async fn fetch_codes_from_nrdb_url(url: &str) -> Result<HashMap<String, u32>> {
                 )));
             }
 
-            http_response.json().await.map_err(|e| {
-                ProxyNexusError::Internal(format!("Failed to parse NetrunnerDB response: {}", e))
-            })?
+            http_response.json().await?
         }
     };
 

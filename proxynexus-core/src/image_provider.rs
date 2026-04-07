@@ -65,10 +65,7 @@ impl ImageProvider for RemoteImageProvider {
                 )));
             }
 
-            let bytes = response
-                .binary()
-                .await
-                .map_err(|e| ProxyNexusError::Internal(e.to_string()))?;
+            let bytes = response.binary().await?;
 
             Ok(bytes)
         }

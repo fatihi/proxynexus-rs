@@ -83,9 +83,7 @@ pub async fn generate_mpc_zip(
 
         let fetch_futures = filenames.iter().map(|filename| async move {
             let url = format!("card_backs/{}", filename);
-            let response = Request::get(&url).send().await.map_err(|e| {
-                ProxyNexusError::Internal(format!("Network error fetching {}: {}", url, e))
-            })?;
+            let response = Request::get(&url).send().await?;
 
             if !response.ok() {
                 return Err(ProxyNexusError::Internal(format!(
@@ -95,9 +93,7 @@ pub async fn generate_mpc_zip(
                 )));
             }
 
-            let bytes = response.binary().await.map_err(|e| {
-                ProxyNexusError::Internal(format!("Error reading binary from {}: {}", url, e))
-            })?;
+            let bytes = response.binary().await?;
 
             Ok((*filename, bytes))
         });
