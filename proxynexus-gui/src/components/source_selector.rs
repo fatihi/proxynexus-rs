@@ -40,7 +40,7 @@ pub fn SourceSelector(props: SourceSelectorProps) -> Element {
                 let packs = store.get_available_packs().await.unwrap_or_default();
                 packs
                     .into_iter()
-                    .filter(|(_, meta)| !meta.contains("no printings available"))
+                    .filter(|(_, _, meta)| !meta.contains("no printings available"))
                     .collect::<Vec<_>>()
             }
             Err(_) => Vec::new(),
@@ -117,7 +117,7 @@ pub fn SourceSelector(props: SourceSelectorProps) -> Element {
                         },
                         option { value: "", disabled: true, "Select a set..." }
                         if let Some(sets) = available_sets.read().as_ref() {
-                            for (name, _code) in sets.iter().rev() {
+                            for (name, _code, _meta) in sets.iter().rev() {
                                 option { value: "{name}", "{name}" }
                             }
                         }
