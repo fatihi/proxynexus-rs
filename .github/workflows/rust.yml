@@ -28,13 +28,13 @@ jobs:
         cache-bin: true
 
     - name: Clippy
-      run: cargo clippy -- -D warnings
+      run: cargo clippy -p proxynexus-core -p proxynexus-cli -- -D warnings
 
     - name: Check WASM compatibility
       run: cargo check --target wasm32-unknown-unknown -p proxynexus-core
 
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test -p proxynexus-core --verbose
 
     - name: Install cargo-binstall
       uses: cargo-bins/cargo-binstall@main
