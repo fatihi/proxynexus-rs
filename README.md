@@ -79,7 +79,9 @@ The desktop app is now ready to use. You can also check which collections have b
 proxynexus-cli collection list
 ```
 
-### CLI Commands
+---
+
+## CLI Commands
 
 The `proxynexus-cli` supports the following subcommands. You can use `--help` on any command for more specific options.
 
@@ -201,6 +203,37 @@ using the following priority hierarchy:
 
 ---
 
+## Updating the Web App's Collections
+
+These steps aren't useful without access to the Cloudflare R2 bucket, but I'm including them here for posterity.
+
+The web app is almost the same as the desktop app, but it doesn't include the collection management features,
+making its database effectively read-only.
+
+
+1.  Use the CLI to remove the old version of the collection (if replacing an existing one), and then add the new collection.
+    ```bash
+    proxynexus-cli collection remove <collection_name>
+    proxynexus-cli collection add <new_collection.pnx>
+    ```
+
+2.  Sync the local `~/.proxynexus/collections` directory up to that bucket.
+    ```bash
+    rclone sync ~/.proxynexus/collections r2-bucket-name:proxynexus-collections --progress
+    ```
+
+3.  Export the local DB, containing the new collection metadata, as a new `init.sql` payload that the web app hydrates from.
+    ```bash
+    proxynexus-cli export --output proxynexus-gui/public/init.sql
+    ```
+
+4.  Run the web app locally (`dx serve --platform web`) to ensure the new `init.sql` loads correctly
+    and the images are fetching from R2 as expected.
+
+5.  Commit the updated `init.sql` file and merge it to `master`. GitHub will build and deploy the web app release files to Cloudflare Pages.
+
+---
+
 ## Technical Notes
 
 ### Image Pre-Processing
@@ -285,8 +318,9 @@ In addition to supporting all the existing features, I had the following goals:
 
 * Be able to run everything locally. All image processing and the database should be able to run entirely in the browser.
 * Be free to host. Though the web version still needs a hosting service, luckily Cloudflare R2's free tier is good enough.
-* Enable anyone to manage card images. This was a foundational change, but it would push me to set up the project
-  in such a way that adding new cards would be as easy as possible.
+* Enable anyone to manage card images. This was a foundational change, but it would push me to set up the project 
+in such a way that adding new cards would be as easy as possible. While I plan to keep the hosted web app updated, 
+I would feel incredibly accomplished to see someone else create and share their own collection `.pnx` file!
 
 This makes the website faster, more stable, free to host, a pleasure for me to work on,
 and hopefully easier for anyone to dive into the codebase.
