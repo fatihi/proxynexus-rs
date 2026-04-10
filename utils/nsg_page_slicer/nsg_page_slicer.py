@@ -32,25 +32,25 @@ COL_TRIMS = {
 
 def main():
     parser = argparse.ArgumentParser(description="Slice and debug image grids.")
-    parser.add_argument("directory", help="Directory containing PNG images to process.")
+    parser.add_argument("input", help="Directory containing PNG images to process.")
     args = parser.parse_args()
 
-    if not os.path.isdir(args.directory):
-        print(f"Error: Directory '{args.directory}' does not exist.")
+    if not os.path.isdir(args.input):
+        print(f"Error: Directory '{args.input}' does not exist.")
         return
 
-    search_pattern = os.path.join(args.directory, "*.png")
+    search_pattern = os.path.join(args.input, "*.png")
     image_paths = sorted(glob.glob(search_pattern))
 
     if not image_paths:
-        print(f"No PNG files found in '{args.directory}'.")
+        print(f"No PNG files found in '{args.input}'.")
         return
 
     print(f"Found {len(image_paths)} PNG file(s) to process.\n")
 
     for img_path in image_paths:
         base_name = os.path.splitext(os.path.basename(img_path))[0]
-        output_dir = os.path.join(args.directory, base_name)
+        output_dir = os.path.join(args.input, base_name)
 
         print(f"--- Processing: {base_name} ---")
 
@@ -60,7 +60,7 @@ def main():
             continue
 
         os.makedirs(output_dir, exist_ok=True)
-        final_slices_dir = os.path.join(args.directory, "final_slices")
+        final_slices_dir = os.path.join(args.input, "final_slices")
         os.makedirs(final_slices_dir, exist_ok=True)
 
         orig_h, orig_w = image.shape[:2]

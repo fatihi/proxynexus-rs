@@ -26,7 +26,7 @@ To adjust the cut dimensions, modify the values at the top of `nsg_page_slicer.p
 ## How to Run
 
 ```bash
-uv run nsg_page_slicer.py "/path/to/your/full_page_images_directory/"
+uv run nsg_page_slicer.py "/path/to/your/full_page_images/"
 ```
 
 ## Output & Debug Files
