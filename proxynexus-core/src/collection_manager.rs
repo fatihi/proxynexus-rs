@@ -301,17 +301,17 @@ mod tests {
         );
 
         assert_eq!(
-            CollectionManager::parse_filename(Path::new("01001-rear.png")),
+            CollectionManager::parse_filename(Path::new("01001-back.png")),
             Some((
                 "01001".to_string(),
                 "original".to_string(),
-                "rear".to_string()
+                "back".to_string()
             ))
         );
 
         assert_eq!(
-            CollectionManager::parse_filename(Path::new("01001_alt1-rear.png")),
-            Some(("01001".to_string(), "alt1".to_string(), "rear".to_string()))
+            CollectionManager::parse_filename(Path::new("01001_alt1-back.png")),
+            Some(("01001".to_string(), "alt1".to_string(), "back".to_string()))
         );
 
         assert_eq!(

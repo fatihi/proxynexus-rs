@@ -9,11 +9,30 @@ pub async fn list_available_sets(db: &mut DbStorage) -> Result<String> {
     let mut store = CardStore::new(db)?;
     let sets = store.get_available_packs().await?;
 
-    let max_name_len = sets.iter().map(|(name, _)| name.len()).max().unwrap_or(0);
+    let max_name_len = sets
+        .iter()
+        .map(|(name, _, _)| name.len())
+        .max()
+        .unwrap_or(0);
+    let max_override_len = sets
+        .iter()
+        .map(|(_, code, _)| code.len() + 4)
+        .max()
+        .unwrap_or(0);
 
     let lines: Vec<String> = sets
         .iter()
-        .map(|(name, meta)| format!("  - {:width$}    {}", name, meta, width = max_name_len))
+        .map(|(name, code, meta)| {
+            let pack_override = format!("[::{}]", code);
+            format!(
+                "  - {:name_width$} {:override_width$}    {}",
+                name,
+                pack_override,
+                meta,
+                name_width = max_name_len,
+                override_width = max_override_len
+            )
+        })
         .collect();
 
     Ok(lines.join("\n"))

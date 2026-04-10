@@ -280,7 +280,7 @@ impl<'a> CardStore<'a> {
         Ok((title_to_card, not_found))
     }
 
-    pub async fn get_available_packs(&mut self) -> Result<Vec<(String, String)>> {
+    pub async fn get_available_packs(&mut self) -> Result<Vec<(String, String, String)>> {
         let query = "
             SELECT
                 p.name as pack_name,
@@ -298,6 +298,7 @@ impl<'a> CardStore<'a> {
         let payloads = self.db.execute(query).await?;
 
         struct PackGroup {
+            code: String,
             name: String,
             date_release: String,
             collections: Vec<String>,
@@ -311,11 +312,14 @@ impl<'a> CardStore<'a> {
             for row in pack_rows {
                 let date_release = row.date_release.unwrap_or_default();
 
-                let entry = pack_data.entry(row.pack_code).or_insert_with(|| PackGroup {
-                    name: row.pack_name,
-                    date_release,
-                    collections: Vec::new(),
-                });
+                let entry = pack_data
+                    .entry(row.pack_code.clone())
+                    .or_insert_with(|| PackGroup {
+                        code: row.pack_code.clone(),
+                        name: row.pack_name,
+                        date_release,
+                        collections: Vec::new(),
+                    });
 
                 if let Some(name) = row.coll_name
                     && row.coll_count > 0
@@ -344,7 +348,7 @@ impl<'a> CardStore<'a> {
                 .map(|m| format!("# {}", m))
                 .unwrap_or_else(|| "# no printings available".to_string());
 
-            results.push((pack.name, display_meta));
+            results.push((pack.name, pack.code, display_meta));
         }
 
         Ok(results)
@@ -595,9 +599,10 @@ impl<'a> CardStore<'a> {
         candidates.sort_by_key(|p| {
             (
                 p.variant != target_variant,
+                p.variant != "original",
+                request.collection.is_some() && request.collection.as_ref() != Some(&p.collection),
+                request.pack_code.is_some() && request.pack_code.as_ref() != Some(&p.pack_code),
                 p.card_code != request.code,
-                request.collection.as_ref() != Some(&p.collection),
-                request.pack_code.as_ref() != Some(&p.pack_code),
                 p.date_release.is_none(),
                 p.date_release.clone(),
             )
@@ -742,6 +747,40 @@ mod tests {
         let result = CardStore::select_printing(&req, &available_mixed).unwrap();
         assert_eq!(result.card_code, "01050");
         assert_eq!(result.variant, "original");
+    }
+
+    #[test]
+    fn test_select_printing_fallback_logic() {
+        let p1 = mock_printing("1", "original", "c1", "p1", Some("2020-01-01"));
+        let p2 = mock_printing("2", "alt1", "c1", "p2", Some("2021-01-01"));
+        let p3 = mock_printing("3", "promo", "c2", "p3", Some("2022-01-01"));
+        let available = vec![p1.clone(), p2.clone(), p3.clone()];
+
+        // 1. Missing variant fallback to "original"
+        let req1 = CardRequest {
+            title: "Test".into(),
+            code: "2".into(), // matches alt1 code
+            variant: Some("missing_variant".into()),
+            collection: None,
+            pack_code: None,
+        };
+        let result1 = CardStore::select_printing(&req1, &available).unwrap();
+        assert_eq!(result1.variant, "original");
+        assert_eq!(result1.card_code, "1");
+
+        // 2. Collection override beats default card code
+        let p4 = mock_printing("4", "original", "c2", "p4", Some("2023-01-01"));
+        let available2 = vec![p1.clone(), p4.clone()];
+        let req3 = CardRequest {
+            title: "Test".into(),
+            code: "1".into(), // matches p1 (collection c1)
+            variant: Some("original".into()),
+            collection: Some("c2".into()), // requests collection c2
+            pack_code: None,
+        };
+        let result3 = CardStore::select_printing(&req3, &available2).unwrap();
+        assert_eq!(result3.card_code, "4");
+        assert_eq!(result3.collection, "c2");
     }
 
     #[test]
