@@ -290,6 +290,38 @@ and stored in the cache. This cached copy is then used when adding additional co
 but *before* the uniqueness marker is stamped. This ensures the expensive `add_bleed_border` function only runs once per file, 
 while still allowing the fast uniqueness marker to stamp each individual copy just before it is written to the zip archive. 
 
+### File Generation Logic 
+
+Here's the high-level flow for generating an output file:
+
+1.  **Connect to the Database.** When running locally, the app connects to the local Sled DB, while the web app 
+sets up an in-memory DB and hydrates it using the remote `init.sql` file. This DB connection is passed to the `CardStore`, 
+which handles querying the DB, entirely unaware of its underlying storage.
+
+2.  **Determine the CardSource.** Based on the user's source selection, their input is wrapped in a specific struct 
+(`Cardlist`, `SetName`, or `NrdbUrl`), all of which implement the `CardSource` trait.
+
+3.  **Generate CardRequests.** The `CardStore` instance is passed to `to_card_requests()`, a method defined 
+by the `CardSource` trait, to produce a list of CardRequests. Whether it's querying the DB for a card list, 
+all cards in a set, or making an async request to the netrunnerdb API, the caller is unaware of both the 
+underlying DB storage and querying logic used by each source.
+
+4.  **Resolve Printings.** The `CardStore`'s `resolve_printings` method queries the database to find all 
+available Printings that match the requests, applying the fallback logic and variant overrides discussed in 
+the "Card Request Resolution" section.
+
+5.  **Fetch Images.** An `ImageProvider` is initialized. When running locally, the app uses a `LocalImageProvider` to 
+read from local storage, while the Web App uses a `RemoteImageProvider` to fetch asynchronously from Cloudflare R2.
+
+6.  **Generate Output.** The resolved list of Printings and the `ImageProvider` are passed to 
+either `generate_pdf` or `generate_mpc_zip`. These core builders process the images and write the final file. 
+They work exactly the same whether the images came from a local hard drive or a remote server.
+
+This core process took a lot of trial and error to nail down. In my day-to-day work in Python, I don't tend to reach
+for object-oriented designs right away, but I realized very quickly I needed to do something to handle code reuse
+and separation of concerns. Rust's traits took some time to wrap my head around, but once it clicked it felt good.
+
+---
 
 ## Rebuilt in Rust
 
