@@ -86,7 +86,7 @@ proxynexus-cli collection list
 The `proxynexus-cli` supports the following subcommands. You can use `--help` on any command for more specific options.
 
 **Generation:**
-*   `generate pdf`: Generate a print-and-play PDF from a specific set, cardlist, or NetrunnerDB URL.
+*   `generate pdf`: Generate a print-and-play PDF from a specific set, cardlist, or netrunnerdb URL.
 *   `generate mpc`: Generate a MakePlayingCards (MPC) formatted ZIP file.
 
 **Collection Management:**
@@ -96,7 +96,7 @@ The `proxynexus-cli` supports the following subcommands. You can use `--help` on
 *   `collection remove`: Delete a collection from your local app.
 
 **Catalog Management:**
-*   `catalog update`: Fetch the latest card and pack data from NetrunnerDB.
+*   `catalog update`: Fetch the latest card and pack data from netrunnerdb.
 *   `catalog info`: View metadata about the local catalog.
 *   `catalog import`: Import catalog data from local JSON files.
 
@@ -113,7 +113,7 @@ The `proxynexus-cli` supports the following subcommands. You can use `--help` on
 *   **Variant:** A property of a Printing used to distinguish between multiple Printings of the same card.
 *   **Part:** Some printings have more than one image. Most cards just have a "front" part, but double-sided cards have a "back" part as well.
 *   **Collection:** A set of card image files and metadata. Can be packaged into a `.pnx` file by the CLI, and added to a local Proxy Nexus instance.
-*   **Pack and Set:** Both mean the same thing and are used interchangeably. A retail expansion of cards. Netrunnerdb's API uses the term pack but their UI uses set.
+*   **Pack and Set:** Both mean the same thing and are used interchangeably. A retail expansion of cards. netrunnerdb's API uses the term pack but their UI uses set.
 *   **Card Request:** The user's intent when asking to generate a proxy. It specifies the card title and code and optional variant, collection, or pack overrides.
 
 --- 
@@ -319,14 +319,50 @@ They work exactly the same whether the images came from a local hard drive or a 
 
 This core process took a lot of trial and error to nail down. In my day-to-day work in Python, I don't tend to reach
 for object-oriented designs right away, but I realized very quickly I needed to do something to handle code reuse
-and separation of concerns. Rust's traits took some time to wrap my head around, but once it clicked it felt good.
+and separation of concerns. Rust's traits took some time to wrap my head around, but once it clicked, it felt good.
+
+---
+
+## Database Architecture
+
+**The Starting Point: `rusqlite`**
+When starting out with the CLI, I used `rusqlite` with a local `~/.proxynexus/proxynexus.db` file.
+But once I started POC'ing the web app in WASM, I found out that `rusqlite` relies on C-bindings,
+which would be a challenge to compile and setup in WASM.
+
+**Detour 1: The `turso` Migration**
+Doing some research, and unfortunately listening to poor advice from an LLM, I migrated to `turso`,
+claiming to be written in pure Rust and having support for WASM. It looked promising, so I refactored all the DB
+querying to async Rust (which in itself wasn't a terrible idea), so that I could use `turso`.
+However, when attempting to initialize a `:memory:` database in the browser, `turso` crashed with a
+panic: `time not implemented on this platform`. It was then I learned that it targets serverless WASM
+(like WASI environments), not standard browsers. It hardcodes calls to OS-level standard library
+features (like `std::time::SystemTime`) that standard browsers do not provide. Super frustrating to find that out.
+
+**Detour 2 & 3: Dioxus Fullstack and `libsql`**
+For a moment, I considered Dioxus' fullstack features, but gave that up because I really didn't want to deal with
+hosting a backend database. I then considered Turso's managed cloud database service, because at least they had a free tier.
+I was hoping the WASM client could at least send SQL strings to the Turso cloud API. So I swapped the `turso` crate
+for the official `libsql` crate to try its `new_remote` builder. Unfortunately, it also failed to compile,
+it's just not meant to run in a browser.
+
+**The Final Pivot: `gluesql`**
+Researching another option, I discovered `gluesql`. It's a SQL database engine written entirely in safe Rust,
+so it had to be compatible with the `wasm32-unknown-unknown` target. It also advertised supporting
+"a variety of storage options". So I used:
+*   `SledStorage` for the local CLI and desktop app, to persistently save data to the local hard drive.
+*   `MemoryStorage` for the web app, to use the DB in memory. Because it starts empty on each page load, 
+the web app fetches the `init.sql`, an export of my native DB instance, and hydrates the `MemoryStorage` on startup.
+
+Switching to `gluesql` required another small refactor, because it doesn't support features like indexes
+and foreign keys. These weren't a huge loss though, because the DB schema is quite simple anyways. I'm super happy
+with how this solution turned out.
 
 ---
 
 ## Rebuilt in Rust
 
-This repo is a rebuild of [the previous project](https://github.com/axmccx/proxynexus/), and it aims to improve
-all the flaws of that version.
+This repo is a rebuild of [the old Proxy Nexus](https://github.com/axmccx/proxynexus/), and it aims to improve all the flaws of that version.
 
 Having a backend server generate each request was a huge flaw. The server was cheap to run but not free.
 At the time, I felt clever building its caching system, but it would frequently run out of storage space, requiring
@@ -335,14 +371,16 @@ website was down.
 
 The database design wasn't great either. It relied on seed files to populate the DB, making it
 super tedious to update the website with new cards. Admittedly, I never put much thought into the process of ongoing
-card updates. I figured eventually everyone would just use NSG's print-and-play PDFs.
+card updates. I figured eventually everyone would just use NSG's print-and-play PDFs. I didn't want to simply fetch
+images from netrunnerdb, because I took pride in offering the highest quality proxies. 
 
 I built the old website with Node.js on the backend and vanilla JS on the frontend. It felt good to avoid
-using a frontend framework and keeping things lightweight, but man, the backend was ugly and unpleasant to work with.
-Lastly, I felt the use of Azure blob storage for the images and caching made it really hard for anyone else to stand up
-the website on their end and make contributions.
+using a frontend framework and keeping things lightweight, but man, the backend became so ugly and unpleasant to work with.
+Lastly, I felt the use of Azure blob storage for the images and caching made the architecture opaque and difficult 
+for anyone else to stand up the website on their end and make contributions.
 
-Since last year, I've been learning Rust and decided that building a Proxy Nexus CLI in Rust would be a good learning exercise.
+Since last year, I've been learning Rust in my free time and decided that building a Proxy Nexus CLI in Rust 
+would be a good learning exercise.
 Since Rust is fun to use, I went looking for a UI framework and found Dioxus. Fascinated with its support for WASM web apps
 as a compile target, it filled me with motivation to rebuild the website in Rust, just to see how well that could work.
 
@@ -354,5 +392,5 @@ In addition to supporting all the existing features, I had the following goals:
 in such a way that adding new cards would be as easy as possible. While I plan to keep the hosted web app updated, 
 I would feel incredibly accomplished to see someone else create and share their own collection `.pnx` file!
 
-This makes the website faster, more stable, free to host, a pleasure for me to work on,
+This rebuilt succeeds at making the website faster, more stable, free to host, a pleasure for me to work on,
 and hopefully easier for anyone to dive into the codebase.
