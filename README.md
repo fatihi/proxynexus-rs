@@ -255,15 +255,25 @@ For more details on how this script works, please refer to the `utils/nsg_page_s
 When generating images formatted for PDFs, images are used as-is from their collections.
 However, when generating for MakePlayingCards.com, additional processing is done to each image on-the-fly.
 
-#### Edge Replication
-When printing physical proxies, because they require a print-safe bleed border, we need to extend the edges of the images. 
+#### Image Scaling & Edge Replication
+When printing physical proxies through MakePlayingCards (MPC), images require a print-safe bleed border to meet their 
+recommended minimum resolution of 816x1110 pixels (for a 744x1038 cut size). 
 The old Proxy Nexus website used an entirely duplicate set of images, which were pre-processed with this bleed border.
 That pre-processing relied on OpenCV, just like the corner infilling does. However, with this project's goal of 
 supporting flexible collection management, and being written in Rust targeting WASM for the web app, 
 OpenCV could not be used for its copyMakeBorder function. 
 
-Instead, the `proxynexus-core` contains its own `add_bleed_border` function in `proxynexus-core/src/print_prep.rs`. 
-It iteratively copies the outer edge pixels and rapidly blits them outward to create a seamless, print-ready bleed natively in Rust.
+Instead, the `proxynexus-core` contains its own `add_bleed_border` function in `proxynexus-core/src/print_prep.rs` which 
+processes each image dynamically:
+*   **Image Scaling:** If the original image is smaller than the MPC cut line (which is often the case for 
+NSG print-and-play extracts), it uses the Lanczos3 algorithm to scale the image just enough so the longest side reaches 
+the cut line. This prevents original art from being cropped by MPC while preserving the aspect ratio and image quality. 
+Images that are already large enough remain unchanged.
+*   **Dynamic Bleed Generation:** Rather than adding a strict 36px bleed all around, the bleed is dynamically sized. 
+It iteratively copies the outer edge pixels and rapidly blits them outward to create a seamless bleed natively in Rust. 
+This ensures at least a 36px bleed while padding the shorter sides to guarantee the final image hits the minimum 
+MPC size of 816x1110.
+
 I benchmarked this function against a version that used the Rust bindings of OpenCV's copyMakeBorder, and while mine is 
 slower, it's quite good enough for keeping the project as purely Rust as possible.
 
