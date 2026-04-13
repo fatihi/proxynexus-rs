@@ -94,7 +94,11 @@ pub fn send_report(report: GenerationReport) {
                 {
                     os = "ios".to_string();
                 } else if ua_lower.contains("mac") {
-                    os = "macos".to_string();
+                    if window.navigator().max_touch_points() > 1 {
+                        os = "ios".to_string();
+                    } else {
+                        os = "macos".to_string();
+                    }
                 } else if ua_lower.contains("android") {
                     os = "android".to_string();
                 } else if ua_lower.contains("linux") {
@@ -195,12 +199,13 @@ fn spawn_send(payload: serde_json::Value) {
 
 #[cfg(target_arch = "wasm32")]
 fn spawn_send(payload: serde_json::Value) {
-    wasm_bindgen_futures::spawn_local(async move {
-        use gloo_net::http::Request;
-        if let Ok(req) = Request::post(CAPTURE_URL).json(&payload) {
-            let _ = req.send().await;
+    if let Some(window) = web_sys::window() {
+        if let Ok(body_str) = serde_json::to_string(&payload) {
+            let _ = window
+                .navigator()
+                .send_beacon_with_opt_str(CAPTURE_URL, Some(&body_str));
         }
-    });
+    }
 }
 
 pub fn is_enabled() -> bool {

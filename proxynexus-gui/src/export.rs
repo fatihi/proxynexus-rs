@@ -167,22 +167,14 @@ pub async fn run_export(
     let mut success = false;
     let mut error_message = None;
 
-    match result {
+    match &result {
         Ok(bytes) => {
+            success = true;
             info!(
                 "Successfully generated {}. Size: {} bytes",
                 meta.format,
                 bytes.len()
             );
-
-            if let Err(e) = save_file(&bytes, meta.filename, meta.filter, meta.ext, meta.mime).await
-            {
-                let msg = format!("Failed to save {}: {:?}", meta.format, e);
-                error!("{}", msg);
-                error_message = Some(msg);
-            } else {
-                success = true;
-            }
         }
         Err(e) => {
             let msg = format!("Failed to generate {}: {:?}", meta.format, e);
@@ -205,6 +197,12 @@ pub async fn run_export(
         selected_printings,
         error_message,
     });
+
+    if let Ok(bytes) = result
+        && let Err(e) = save_file(&bytes, meta.filename, meta.filter, meta.ext, meta.mime).await
+    {
+        error!("Failed to save {}: {:?}", meta.format, e);
+    }
 
     progress_signal.set(None);
 }
