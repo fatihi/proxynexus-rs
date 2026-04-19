@@ -8,7 +8,10 @@ use proxynexus_core::db_storage::DbStorage;
 use proxynexus_core::image_provider::LocalImageProvider;
 use proxynexus_core::models::Printing;
 use proxynexus_core::mpc::generate_mpc_zip;
-use proxynexus_core::pdf::{CutLines, PageSize, PdfOptions, generate_pdf};
+use proxynexus_core::pdf::{
+    CutLines, DEFAULT_CUT_LINE_THICKNESS, MAX_CUT_LINE_THICKNESS, MIN_CUT_LINE_THICKNESS, PageSize,
+    PdfOptions, generate_pdf,
+};
 use proxynexus_core::query::{generate_query_output, list_available_sets};
 use std::path::PathBuf;
 use tracing::info;
@@ -125,6 +128,9 @@ enum GenerateType {
 
         #[arg(long, default_value = "margins")]
         cut_lines: Option<String>,
+
+        #[arg(long, default_value_t = DEFAULT_CUT_LINE_THICKNESS)]
+        cut_line_thickness: f32,
 
         #[arg(long, default_value = "edge-to-edge")]
         print_layout: String,
@@ -404,6 +410,7 @@ async fn handle_generate(
             output_path,
             page_size,
             cut_lines,
+            cut_line_thickness,
             print_layout,
         } => {
             let page_size_enum = parse_page_size(&page_size).context("Invalid page size")?;
@@ -411,6 +418,14 @@ async fn handle_generate(
                 parse_cut_lines(cut_lines.as_deref()).context("Invalid cut lines option")?;
             let print_layout_enum =
                 parse_print_layout(&print_layout).context("Invalid print layout option")?;
+            if !(MIN_CUT_LINE_THICKNESS..=MAX_CUT_LINE_THICKNESS).contains(&cut_line_thickness) {
+                return Err(anyhow!(
+                    "--cut-line-thickness must be between {} and {} (got {})",
+                    MIN_CUT_LINE_THICKNESS,
+                    MAX_CUT_LINE_THICKNESS,
+                    cut_line_thickness
+                ));
+            }
             let source = determine_input_source(cardlist, set_name, nrdb_url);
 
             let printings = get_printings_from_source(db, source).await?;
@@ -422,6 +437,7 @@ async fn handle_generate(
                     page_size: page_size_enum,
                     cut_lines: cut_lines_enum,
                     print_layout: print_layout_enum,
+                    cut_line_thickness,
                 },
                 None,
             )

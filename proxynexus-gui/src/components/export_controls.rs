@@ -1,5 +1,8 @@
 use dioxus::prelude::*;
-use proxynexus_core::pdf::{CutLines, PageSize, PdfOptions, PrintLayout};
+use proxynexus_core::pdf::{
+    CutLines, DEFAULT_CUT_LINE_THICKNESS, MAX_CUT_LINE_THICKNESS, MIN_CUT_LINE_THICKNESS, PageSize,
+    PdfOptions, PrintLayout,
+};
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum ExportFormat {
@@ -88,7 +91,15 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
     let mut export_format = use_signal(|| ExportFormat::Pdf);
     let mut page_size_preset = use_signal(|| PageSizePreset::Letter);
     let mut cut_lines = use_signal(CutLines::default);
+    let mut cut_line_thickness = use_signal(|| DEFAULT_CUT_LINE_THICKNESS.to_string());
     let mut print_layout = use_signal(PrintLayout::default);
+
+    let thickness_value = use_memo(move || {
+        cut_line_thickness()
+            .parse::<f32>()
+            .ok()
+            .filter(|v| (MIN_CUT_LINE_THICKNESS..=MAX_CUT_LINE_THICKNESS).contains(v))
+    });
 
     let mut custom_width = use_signal(|| "".to_string());
     let mut custom_height = use_signal(|| "".to_string());
@@ -250,6 +261,35 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                         ],
                         on_change: move |v| cut_lines.set(v)
                     }
+
+                    if cut_lines() == CutLines::FullPage {
+                        {
+                            let is_invalid = thickness_value().is_none();
+                            let base = "w-full p-2 border rounded-md outline-none focus:ring-2 text-xs md:text-sm transition-all";
+                            let state = if is_invalid {
+                                "border-red-500 focus:ring-red-400 bg-red-50"
+                            } else {
+                                "border-gray-300 focus:ring-blue-400 bg-white"
+                            };
+                            rsx! {
+                                div { class: "flex items-center gap-2 pt-1",
+                                    label { class: "text-xs md:text-sm text-gray-600 shrink-0", "Thickness (pt)" }
+                                    input {
+                                        disabled: is_generating,
+                                        class: "{base} {state}",
+                                        type: "text",
+                                        value: "{cut_line_thickness()}",
+                                        oninput: move |evt| cut_line_thickness.set(evt.value().clone())
+                                    }
+                                }
+                                if is_invalid {
+                                    span { class: "text-xs text-red-500 font-medium",
+                                        "Enter a number between {MIN_CUT_LINE_THICKNESS} and {MAX_CUT_LINE_THICKNESS}"
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 div { class: "flex flex-col gap-1 md:gap-2",
@@ -318,8 +358,10 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                 div {
                     class: "mt-auto pt-4 md:pt-0",
                     {
+                        let thickness_invalid = cut_lines() == CutLines::FullPage && thickness_value().is_none();
+                        let disabled = props.is_disabled || thickness_invalid;
                         let btn_base = "w-full py-1.5 md:py-2 px-3 md:px-4 font-semibold rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 text-xs md:text-sm";
-                        let btn_state = if props.is_disabled {
+                        let btn_state = if disabled {
                             "bg-gray-300 text-gray-500 cursor-not-allowed"
                         } else {
                             "bg-blue-600 hover:bg-blue-700 text-white"
@@ -328,18 +370,27 @@ pub fn ExportControls(props: ExportControlsProps) -> Element {
                         rsx! {
                             button {
                                 class: "{btn_base} {btn_state}",
-                                disabled: props.is_disabled,
+                                disabled,
                                 onclick: move |_| {
-                                    if props.is_disabled { return; }
+                                    if disabled { return; }
                                     let config = match export_format() {
                                         ExportFormat::Mpc => ExportConfig::Mpc,
-                                        ExportFormat::Pdf => match validation.result {
-                                            Some(page_size) => ExportConfig::Pdf(PdfOptions {
+                                        ExportFormat::Pdf => {
+                                            let Some(page_size) = validation.result else { return };
+                                            let thickness = match cut_lines() {
+                                                CutLines::None => 0.0,
+                                                CutLines::Margins => DEFAULT_CUT_LINE_THICKNESS,
+                                                CutLines::FullPage => match thickness_value() {
+                                                    Some(t) => t,
+                                                    None => return,
+                                                },
+                                            };
+                                            ExportConfig::Pdf(PdfOptions {
                                                 page_size,
                                                 cut_lines: cut_lines(),
                                                 print_layout: print_layout(),
-                                            }),
-                                            None => return,
+                                                cut_line_thickness: thickness,
+                                            })
                                         }
                                     };
                                     props.on_generate.call(config);

@@ -28,6 +28,10 @@ const CARD_HEIGHT: f32 = 249.09; // 8.788 cm in points
 
 const MINIMUM_MARGIN: f32 = 0.25 * POINTS_PER_INCH;
 
+pub const MIN_CUT_LINE_THICKNESS: f32 = 0.1;
+pub const MAX_CUT_LINE_THICKNESS: f32 = 10.0;
+pub const DEFAULT_CUT_LINE_THICKNESS: f32 = 0.5;
+
 #[derive(Clone, Copy, PartialEq, Debug, Default, Serialize)]
 pub enum PageSize {
     #[default]
@@ -80,17 +84,37 @@ impl PrintLayout {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct PdfOptions {
     pub page_size: PageSize,
     pub cut_lines: CutLines,
     pub print_layout: PrintLayout,
+    pub cut_line_thickness: f32,
+}
+
+impl Default for PdfOptions {
+    fn default() -> Self {
+        Self {
+            page_size: PageSize::default(),
+            cut_lines: CutLines::default(),
+            print_layout: PrintLayout::default(),
+            cut_line_thickness: DEFAULT_CUT_LINE_THICKNESS,
+        }
+    }
 }
 
 impl PdfOptions {
+    fn effective_gap(&self) -> f32 {
+        let base = self.print_layout.gap_points();
+        match self.cut_lines {
+            CutLines::FullPage => base.max(self.cut_line_thickness),
+            _ => base,
+        }
+    }
+
     fn capacity(&self) -> (usize, usize) {
         let (page_width, page_height) = self.page_size.dimensions();
-        let gap = self.print_layout.gap_points();
+        let gap = self.effective_gap();
         let max_cols =
             ((page_width - (MINIMUM_MARGIN * 2.0) + gap) / (CARD_WIDTH + gap)).floor() as usize;
         let max_rows =
@@ -101,7 +125,7 @@ impl PdfOptions {
     fn margins(&self) -> (f32, f32) {
         let (page_width, page_height) = self.page_size.dimensions();
         let (max_rows, max_cols) = self.capacity();
-        let gap = self.print_layout.gap_points();
+        let gap = self.effective_gap();
 
         let left_margin =
             (page_width - (max_cols as f32 * CARD_WIDTH + (max_cols as f32 - 1.0) * gap)) / 2.0;
@@ -191,7 +215,7 @@ pub async fn generate_pdf(
 
         surface.set_stroke(Some(Stroke {
             paint: rgb::Color::new(16, 16, 16).into(),
-            width: 0.5,
+            width: options.cut_line_thickness,
             miter_limit: 0.0,
             line_cap: Default::default(),
             line_join: Default::default(),
@@ -220,7 +244,7 @@ pub async fn generate_pdf(
 fn calculate_card_position(card_index: usize, options: &PdfOptions) -> (f32, f32) {
     let (_, max_cols) = options.capacity();
     let (left_margin, top_margin) = options.margins();
-    let gap = options.print_layout.gap_points();
+    let gap = options.effective_gap();
 
     let col = (card_index % max_cols) as f32;
     let row = (card_index / max_cols) as f32;
@@ -234,9 +258,9 @@ fn calculate_card_position(card_index: usize, options: &PdfOptions) -> (f32, f32
 fn calculate_margin_cutlines(options: &PdfOptions) -> Vec<Path> {
     let (max_rows, max_cols) = options.capacity();
     let (left_margin, top_margin) = options.margins();
-    let gap = options.print_layout.gap_points();
+    let gap = options.effective_gap();
     let line_length: f32 = 15.0;
-    let line_gap: f32 = 3.0;
+    let line_gap: f32 = 3.0_f32.max(options.cut_line_thickness / 2.0 + 1.0);
 
     let mut lines = Vec::<Path>::new();
 
@@ -338,7 +362,7 @@ fn calculate_full_page_cutlines(options: &PdfOptions) -> Vec<Path> {
     let (max_rows, max_cols) = options.capacity();
     let (left_margin, top_margin) = options.margins();
     let (page_width, page_height) = options.page_size.dimensions();
-    let gap = options.print_layout.gap_points();
+    let gap = options.effective_gap();
 
     let mut lines = Vec::<Path>::new();
 
@@ -361,4 +385,110 @@ fn calculate_full_page_cutlines(options: &PdfOptions) -> Vec<Path> {
     }
 
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opts(cut_lines: CutLines, print_layout: PrintLayout, thickness: f32) -> PdfOptions {
+        PdfOptions {
+            page_size: PageSize::Letter,
+            cut_lines,
+            print_layout,
+            cut_line_thickness: thickness,
+        }
+    }
+
+    #[test]
+    fn default_thickness_uses_the_default_constant() {
+        assert_eq!(
+            PdfOptions::default().cut_line_thickness,
+            DEFAULT_CUT_LINE_THICKNESS
+        );
+    }
+
+    #[test]
+    fn thickness_constants_are_ordered_and_positive() {
+        assert!(MIN_CUT_LINE_THICKNESS > 0.0);
+        assert!(MIN_CUT_LINE_THICKNESS < DEFAULT_CUT_LINE_THICKNESS);
+        assert!(DEFAULT_CUT_LINE_THICKNESS < MAX_CUT_LINE_THICKNESS);
+    }
+
+    #[test]
+    fn effective_gap_ignores_thickness_for_none_and_margins() {
+        let base = PrintLayout::EdgeToEdge.gap_points();
+        assert_eq!(
+            opts(CutLines::None, PrintLayout::EdgeToEdge, MAX_CUT_LINE_THICKNESS).effective_gap(),
+            base,
+        );
+        assert_eq!(
+            opts(
+                CutLines::Margins,
+                PrintLayout::EdgeToEdge,
+                MAX_CUT_LINE_THICKNESS
+            )
+            .effective_gap(),
+            base,
+        );
+    }
+
+    #[test]
+    fn effective_gap_widens_for_full_page_when_thickness_exceeds_base() {
+        let o = opts(CutLines::FullPage, PrintLayout::EdgeToEdge, 3.0);
+        assert_eq!(o.effective_gap(), 3.0);
+    }
+
+    #[test]
+    fn effective_gap_preserves_base_for_full_page_when_base_exceeds_thickness() {
+        // Gap layout reserves 0.125in (9pt) between cards; a 0.5pt stroke shouldn't shrink it.
+        let base = PrintLayout::Gap.gap_points();
+        assert!(base > DEFAULT_CUT_LINE_THICKNESS);
+        assert_eq!(
+            opts(
+                CutLines::FullPage,
+                PrintLayout::Gap,
+                DEFAULT_CUT_LINE_THICKNESS
+            )
+            .effective_gap(),
+            base,
+        );
+    }
+
+    #[test]
+    fn full_page_thick_lines_can_reduce_capacity() {
+        let thin = opts(
+            CutLines::FullPage,
+            PrintLayout::EdgeToEdge,
+            DEFAULT_CUT_LINE_THICKNESS,
+        );
+        let thick = opts(
+            CutLines::FullPage,
+            PrintLayout::EdgeToEdge,
+            MAX_CUT_LINE_THICKNESS,
+        );
+        let (thin_rows, thin_cols) = thin.capacity();
+        let (thick_rows, thick_cols) = thick.capacity();
+        assert!(thick_rows <= thin_rows);
+        assert!(thick_cols <= thin_cols);
+        assert!(
+            thick_rows < thin_rows || thick_cols < thin_cols,
+            "max thickness should cost at least one row or column vs default thickness"
+        );
+    }
+
+    #[test]
+    fn margin_capacity_is_independent_of_thickness() {
+        let thin = opts(
+            CutLines::Margins,
+            PrintLayout::EdgeToEdge,
+            MIN_CUT_LINE_THICKNESS,
+        );
+        let thick = opts(
+            CutLines::Margins,
+            PrintLayout::EdgeToEdge,
+            MAX_CUT_LINE_THICKNESS,
+        );
+        assert_eq!(thin.capacity(), thick.capacity());
+    }
 }
