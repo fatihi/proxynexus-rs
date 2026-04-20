@@ -20,6 +20,8 @@ to simplify ongoing updates of the hosted image collection for the web app and f
 - [Rust](https://rust-lang.org/learn/get-started/), 
 - [dioxus-cli](https://dioxuslabs.com/learn/0.7/getting_started/) 
   provides the `dx` command for running the GUI
+- `clang` (Linux only) — required to cross-compile C-based dependencies (e.g. `zstd-sys`)
+  for the `wasm32-unknown-unknown` target. Install via `sudo apt install clang` on Debian/Ubuntu.
 
 
 ### Running the Web App Locally
