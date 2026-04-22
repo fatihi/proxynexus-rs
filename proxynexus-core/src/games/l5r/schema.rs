@@ -11,8 +11,7 @@ CREATE TABLE IF NOT EXISTS l5r_card_versions (
     card_id TEXT NOT NULL,
     pack_id TEXT NOT NULL,
     image_url TEXT,
-    quantity INTEGER NOT NULL,
-    PRIMARY KEY (card_id, pack_id)
+    quantity INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS l5r_packs (
